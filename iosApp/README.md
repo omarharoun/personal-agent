@@ -18,8 +18,45 @@ the `UNUserNotificationCenter` scheduler are Swift.
 | `iosApp/ContentView.swift` | TabView: Notes / Reminders / Plan (SwiftUI) |
 | `iosApp/AppModel.swift` | `ObservableObject` bridging shared Kotlin → SwiftUI (awaits Kotlin `suspend` funcs as Swift `async`) |
 | `iosApp/IosReminderScheduler.swift` | Implements the shared `ReminderScheduler` protocol via `UNUserNotificationCenter` |
+| `iosApp/IosEmbedder.swift` | On-device text embeddings (Step 2) via Apple NaturalLanguage; implements the `IosNativeEmbedder` seam |
 | `iosApp/Info.plist` | App metadata |
 | `project.yml` | XcodeGen spec that generates `iosApp.xcodeproj` |
+
+## On-device embeddings (Step 2)
+
+Semantic memory recall needs each memory turned into a vector. iOS does this
+**fully on-device with no network and nothing to ship in the app bundle**, using
+Apple's **NaturalLanguage** framework: `NLEmbedding.sentenceEmbedding(for:)`.
+
+| Decision | Choice | Why |
+|----------|--------|-----|
+| Model | Apple NaturalLanguage `NLEmbedding` | Built into iOS — no model binary to download, ship, or keep out of git. On-device, no network. |
+| Dimension | Apple-defined (typically **512**) | Android uses all-MiniLM-L6-v2 (**384**). They differ — **acceptable**: the vector index is built/queried per-device, so vectors are never compared across platforms. |
+| Normalization | L2-normalized in `IosEmbedder` | Lets the memory layer use plain dot-product as cosine similarity. |
+| Fallback | Deterministic FNV-1a bag-of-words | If `NLEmbedding` is unavailable or returns no vector for a string, we still return a stable, correctly-sized vector (never empty). |
+
+**No Core ML model is shipped**, so there is no large binary to provision or
+gitignore. If a future revision switches to a converted **all-MiniLM-L6-v2 Core
+ML** model (384-dim, to match Android exactly), that `.mlmodelc`/`.mlpackage`
+would be generated via `coremltools` and **must not be committed** — the repo
+`.gitignore` already excludes `*.mlmodel` / `*.mlmodelc` / `*.mlpackage`, and the
+provisioning steps would be documented here.
+
+### Bridge shape
+
+`Embedder` (shared, `suspend fun embed`) is the contract `MemoryService` uses.
+Because having **Swift implement a Kotlin `suspend` function** is the fragile
+corner of KMP interop, the Swift side instead implements a *synchronous* Kotlin
+seam, `IosNativeEmbedder`, and the Kotlin `IosEmbedderAdapter` adapts it to the
+`suspend` `Embedder` (running the work on `Dispatchers.Default`). This mirrors
+Step 1's "plain interface, injected from Swift" reminder-scheduler pattern.
+`IosFactories.createEmbedder(native:)` performs the wiring; `AppModel` constructs
+`IosEmbedder()` and holds the resulting `Embedder` ready for `MemoryService`.
+
+> ⚠️ **Verification gate:** none of the Step 2 iOS code has been compiled — there
+> is no macOS/Xcode in the dev sandbox. The **first Xcode build on your Mac is
+> the real verification** of `IosEmbedder.swift`, the `KotlinFloatArray` interop,
+> and the `IosNativeEmbedder` conformance.
 
 ## Build & run (on a Mac)
 

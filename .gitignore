@@ -32,6 +32,16 @@ DerivedData/
 .swiftpm/
 Pods/
 
+# --- On-device ML models (Step 2 embeddings) ---
+# The iOS embedder uses Apple NaturalLanguage (no shipped model). If a converted
+# Core ML model (e.g. all-MiniLM-L6-v2) is ever added, it must NOT be committed —
+# it would be provisioned per iosApp/README. Keep large model binaries out of git:
+*.mlmodel
+*.mlmodelc
+*.mlpackage
+*.onnx
+*.tflite
+
 # --- macOS / misc ---
 .DS_Store
 *.log

@@ -17,12 +17,20 @@ final class AppModel: ObservableObject {
     private let reminderService: ReminderService
     private let clock: Clock
 
+    /// On-device, no-network embedder (Apple NaturalLanguage) bridged to the
+    /// shared `Embedder` contract. Held here ready to be handed to the shared
+    /// `MemoryService` once the memory-layer sibling lands it (Step 2):
+    ///   `IosFactories.shared.createMemoryService(store: store, embedder: embedder)`
+    /// — mirroring how `reminderService` is constructed above.
+    private let embedder: Embedder
+
     init() {
         self.store = IosFactories.shared.createLocalStore()
         self.reminderService = IosFactories.shared.createReminderService(
             store: store,
             scheduler: IosReminderScheduler()
         )
+        self.embedder = IosFactories.shared.createEmbedder(native: IosEmbedder())
         self.clock = IosFactories.shared.systemClock()
     }
 
