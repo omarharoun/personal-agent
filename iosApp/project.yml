@@ -1,0 +1,40 @@
+# XcodeGen spec — generates iosApp.xcodeproj reproducibly.
+# Run:  cd iosApp && xcodegen generate   (brew install xcodegen)
+# Then: open iosApp.xcodeproj  and build to a simulator/device on macOS.
+#
+# A hand-written .pbxproj is intentionally NOT committed: it is huge, fragile,
+# and impossible to validate in this Linux sandbox. This spec is the source of
+# truth; it produces a correct project that links the shared KMP framework.
+name: iosApp
+options:
+  bundleIdPrefix: com.personalagent
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    # Where Gradle drops the compiled `Shared.framework` for the active config.
+    FRAMEWORK_SEARCH_PATHS:
+      - "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+    info:
+      path: iosApp/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.personalagent.ios
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - framework: Shared.framework
+        embed: true
+    # Build the shared framework before compiling Swift, so `import Shared` resolves.
+    preBuildScripts:
+      - name: "Build shared KMP framework"
+        script: |
+          cd "$SRCROOT/.."
+          ./gradlew :shared:embedAndSignAppleFrameworkForXcode
+        basedOnDependencyAnalysis: false
