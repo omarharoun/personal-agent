@@ -1,5 +1,8 @@
 package com.personalagent.shared.conversation
 
+import com.personalagent.shared.cache.CachedUnderstanding
+import com.personalagent.shared.cache.NoOpSemanticCache
+import com.personalagent.shared.cache.SemanticCache
 import com.personalagent.shared.cloud.CloudClient
 import com.personalagent.shared.cloud.EscalationPolicy
 import com.personalagent.shared.cloud.LocalOnlyEscalationPolicy
@@ -27,11 +30,20 @@ import kotlinx.coroutines.flow.flow
  * is anonymized ([PayloadPrep.prepare]), sent to a [CloudClient], and the answer
  * rehydrated locally ([PayloadPrep.rehydrate]) before being recorded + returned.
  *
+ * Step 6 adds the **semantic cache of understanding**, consulted BEFORE the
+ * escalation decision ([semanticCache]). If the cache has a strong hit for the
+ * turn, that accumulated understanding GROUNDS a LOCAL answer and the turn is NOT
+ * escalated — the cache short-circuits the cloud. Only on a cache MISS does the
+ * [escalationPolicy] get to send the turn to the cloud. As understanding
+ * accumulates, more turns are served locally, so cloud usage falls with use while
+ * personalization deepens.
+ *
  * Safe defaults keep this class local-only and network-free: a
  * [LocalOnlyEscalationPolicy] (never escalates), a [PassthroughPayloadPrep] (no-op
- * prep, for wiring only), and an [UnavailableCloudClient] (throws if ever reached).
- * So with defaults it stays fully unit-testable with a [FakeOnDeviceLlm] and the
- * real [MemoryService], with no network.
+ * prep, for wiring only), an [UnavailableCloudClient] (throws if ever reached), and
+ * a [NoOpSemanticCache] (always misses, so routing is byte-for-byte Step-4 behaviour
+ * until a real cache is injected). So with defaults it stays fully unit-testable
+ * with a [FakeOnDeviceLlm] and the real [MemoryService], with no network.
  *
  * 🤝 SHARED CONTRACT — constructor shape `(llm, memory)` is fixed. The remaining
  * parameters are appended with defaults so production can call
@@ -46,6 +58,8 @@ import kotlinx.coroutines.flow.flow
  * @param payloadPrep anonymizes before escalating + rehydrates the answer
  *   (default: passthrough — NOT the production anonymizer).
  * @param cloudClient remote model used on escalation (default: unavailable/throws).
+ * @param semanticCache accumulated understanding consulted before escalating; a
+ *   strong hit keeps the turn local (default: no-op cache — always misses).
  */
 class ConversationService(
     private val llm: OnDeviceLlm,
@@ -56,6 +70,7 @@ class ConversationService(
     private val escalationPolicy: EscalationPolicy = LocalOnlyEscalationPolicy,
     private val payloadPrep: PayloadPrep = PassthroughPayloadPrep(),
     private val cloudClient: CloudClient = UnavailableCloudClient,
+    private val semanticCache: SemanticCache = NoOpSemanticCache,
 ) {
 
     /**
@@ -71,10 +86,14 @@ class ConversationService(
 
         val context = retrieve(turn)
 
-        val reply = if (shouldEscalate(turn, context)) {
+        // Step 6: cache-before-cloud. A strong cache hit grounds a LOCAL answer and
+        // short-circuits escalation; only a cache MISS may go to the cloud.
+        val cached = semanticCache.lookup(turn)
+
+        val reply = if (cached.isEmpty() && shouldEscalate(turn, context)) {
             escalate(turn, context)
         } else {
-            val prompt = promptBuilder.build(turn, context)
+            val prompt = promptBuilder.build(turn, ground(context, cached))
             llm.generate(prompt, options)
         }
 
@@ -96,7 +115,11 @@ class ConversationService(
 
         val context = retrieve(turn)
 
-        if (shouldEscalate(turn, context)) {
+        // Step 6: same cache-before-cloud routing as respond(). A strong cache hit
+        // keeps the turn local (grounded), so only a cache miss can escalate.
+        val cached = semanticCache.lookup(turn)
+
+        if (cached.isEmpty() && shouldEscalate(turn, context)) {
             // Cloud completion is non-streaming; emit the rehydrated answer as a
             // single chunk so the stream contract still holds (concatenation == reply).
             val answer = escalate(turn, context)
@@ -105,7 +128,7 @@ class ConversationService(
             return@flow
         }
 
-        val prompt = promptBuilder.build(turn, context)
+        val prompt = promptBuilder.build(turn, ground(context, cached))
 
         val full = StringBuilder()
         llm.generateStream(prompt, options).collect { chunk ->
@@ -140,6 +163,32 @@ class ConversationService(
     private suspend fun retrieve(turn: String): List<MemoryEntry> =
         memory.retrieveContext(turn, contextTopK)
 
+    /**
+     * Fold cached [understandings] into the grounding context, best-first, ahead of
+     * the retrieved [context]. Each understanding becomes a [MemoryKind.FACT] entry
+     * so the prompt builder presents it as established knowledge the local model
+     * should answer from — this is how a cache hit grounds the LOCAL reply instead
+     * of going to the cloud. With an empty hit (the default no-op cache) this is a
+     * no-op and the prompt is identical to Step 4.
+     */
+    private fun ground(
+        context: List<MemoryEntry>,
+        understandings: List<CachedUnderstanding>,
+    ): List<MemoryEntry> {
+        if (understandings.isEmpty()) return context
+        val grounded = understandings.map { u ->
+            MemoryEntry(
+                id = u.id,
+                content = u.summary,
+                kind = MemoryKind.FACT,
+                source = SOURCE_CACHE,
+                createdAt = u.updatedAt,
+                embedding = u.embedding.toList(),
+            )
+        }
+        return grounded + context
+    }
+
     /** Persist the turn so it informs later retrievals. */
     private suspend fun record(userText: String, reply: String) {
         memory.recordInteraction(userText, source = SOURCE_USER, kind = MemoryKind.EVENT)
@@ -151,5 +200,6 @@ class ConversationService(
     companion object {
         const val SOURCE_USER = "user"
         const val SOURCE_ASSISTANT = "assistant"
+        const val SOURCE_CACHE = "cache"
     }
 }
