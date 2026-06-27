@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,11 +27,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
-private enum class Tab(val label: String) { NOTES("Notes"), REMINDERS("Reminders"), PLAN("Plan") }
+private enum class Tab(val label: String) {
+    NOTES("Notes"), REMINDERS("Reminders"), PLAN("Plan"), SUPPORT("Support")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppScreen(vm: AppViewModel) {
+fun AppScreen(vm: AppViewModel, safetyVm: SafetyViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
     var tab by remember { mutableStateOf(Tab.NOTES) }
     val snackbar = remember { SnackbarHostState() }
@@ -65,6 +68,12 @@ fun AppScreen(vm: AppViewModel) {
                     icon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
                     label = { Text(Tab.PLAN.label) },
                 )
+                NavigationBarItem(
+                    selected = tab == Tab.SUPPORT,
+                    onClick = { tab = Tab.SUPPORT },
+                    icon = { Icon(Icons.Filled.Favorite, contentDescription = null) },
+                    label = { Text(Tab.SUPPORT.label) },
+                )
             }
         },
     ) { inner ->
@@ -73,6 +82,7 @@ fun AppScreen(vm: AppViewModel) {
                 Tab.NOTES -> NotesScreen(state, vm)
                 Tab.REMINDERS -> RemindersScreen(state, vm)
                 Tab.PLAN -> PlanScreen(state, vm)
+                Tab.SUPPORT -> SafetyScreen(safetyVm, snackbar)
             }
         }
     }

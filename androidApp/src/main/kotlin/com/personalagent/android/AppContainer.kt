@@ -19,6 +19,12 @@ import com.personalagent.shared.memory.MemoryService
 import com.personalagent.shared.crypto.AndroidSecretKeyProvider
 import com.personalagent.shared.crypto.SecretKeyProvider
 import com.personalagent.shared.reminder.ReminderService
+import com.personalagent.shared.safety.CrisisRecognizer
+import com.personalagent.shared.safety.CrisisResourceProvider
+import com.personalagent.shared.safety.CrisisResponder
+import com.personalagent.shared.safety.DefaultCrisisResourceProvider
+import com.personalagent.shared.safety.KeywordCrisisRecognizer
+import com.personalagent.shared.safety.TrustedContactsStore
 import com.personalagent.shared.store.AndroidKeyValueStorage
 import com.personalagent.shared.crypto.EncryptedKeyValueStorage
 import com.personalagent.shared.store.KeyValueStorage
@@ -76,6 +82,41 @@ class AppContainer(
      */
     val securitySetup: SecuritySetupRepository =
         SecuritySetupRepository(encrypted("security_setup"))
+
+    /**
+     * 🔒 CRISIS-CRITICAL (Step 7) — consent-first crisis-safety wiring. 🔒
+     *
+     * The user's pre-chosen trusted contacts, sealed at rest via the same encrypted
+     * [KeyValueStorage] as everything else. The UI captures explicit consent up front
+     * when a contact is added.
+     */
+    val trustedContactsStore: TrustedContactsStore =
+        TrustedContactsStore(encrypted("trusted_contacts"))
+
+    /**
+     * 🔒 Placeholder crisis resources — clearly-labelled starting points pending a
+     * crisis expert's review/localization. The support surface shows that caveat.
+     */
+    val crisisResourceProvider: CrisisResourceProvider = DefaultCrisisResourceProvider()
+
+    /**
+     * 🔒 Auto-detection is OFF by default. The canonical [KeywordCrisisRecognizer]
+     * is wired here, but it is **never** connected to live/background scanning — it
+     * is only consulted on an explicit, user-initiated check-in. The everyday entry
+     * point is the "Support" tab, which surfaces support on demand without any
+     * recognition at all. So there are no auto-triggers and no false alarms.
+     * // TODO crisis-review: connecting the recognizer to any live text is gated
+     * behind SECURITY_REVIEW Gate 2 sign-off.
+     */
+    val crisisRecognizer: CrisisRecognizer = KeywordCrisisRecognizer()
+
+    /**
+     * 🔒 Builds the supportive, consent-first surface. It assembles copy + resources
+     * and contacts NO ONE — there is no autonomous path. NOT-FOR-REAL-USERS until
+     * the crisis-expert gate is passed.
+     */
+    val crisisResponder: CrisisResponder =
+        CrisisResponder(crisisResourceProvider)
 
     val reminderService: ReminderService =
         ReminderService(
