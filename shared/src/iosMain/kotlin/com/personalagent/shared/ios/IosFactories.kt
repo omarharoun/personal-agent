@@ -7,6 +7,9 @@ import com.personalagent.shared.cloud.HttpCloudClient
 import com.personalagent.shared.cloud.UnavailableCloudClient
 import com.personalagent.shared.conversation.ConversationService
 import com.personalagent.shared.conversation.GenOptions
+import com.personalagent.shared.crypto.IosNativeKeyStore
+import com.personalagent.shared.crypto.IosSecretKeyProvider
+import com.personalagent.shared.crypto.SecretKeyProvider
 import com.personalagent.shared.llm.IosLlmAdapter
 import com.personalagent.shared.llm.IosNativeLlm
 import com.personalagent.shared.conversation.OnDeviceLlm
@@ -17,6 +20,7 @@ import com.personalagent.shared.memory.IosNativeEmbedder
 import com.personalagent.shared.memory.MemoryService
 import com.personalagent.shared.reminder.ReminderScheduler
 import com.personalagent.shared.reminder.ReminderService
+import com.personalagent.shared.store.EncryptedKeyValueStorage
 import com.personalagent.shared.store.IosKeyValueStorage
 import com.personalagent.shared.store.LocalStore
 import com.personalagent.shared.store.PersistentLocalStore
@@ -31,12 +35,28 @@ import com.personalagent.shared.util.SystemClock
  * The reminder scheduler is provided FROM Swift (it uses UNUserNotificationCenter),
  * which is why [createReminderService] takes it as a parameter.
  *
- * 🔒 Step 5 swap point: replace [IosKeyValueStorage] in [createLocalStore] with
- * an encrypted (Keychain-backed) implementation; the SwiftUI app is unaffected.
+ * 🔒 Step 5 (DONE for iOS): [createLocalStore]/[createMemoryService] now wrap the
+ * plaintext [IosKeyValueStorage] containers in an [EncryptedKeyValueStorage]
+ * backed by [IosSecretKeyProvider] (Keychain + Secure Enclave + CryptoKit
+ * AES-GCM). Everything above the [KeyValueStorage] seam is unchanged; the SwiftUI
+ * app only has to provide the Swift key store (see [createSecretKeyProvider]).
  */
 object IosFactories {
-    fun createLocalStore(): LocalStore =
-        PersistentLocalStore(IosKeyValueStorage())
+    /**
+     * 🔒 Wrap the Swift-provided secure key store ([IosNativeKeyStore], implemented
+     * by `IosSecretKeyStore` over Keychain + Secure Enclave + CryptoKit) as the
+     * shared [SecretKeyProvider]. Provided FROM Swift for the same reason as the
+     * embedder/scheduler/LLM — the crypto lives in native Apple frameworks.
+     */
+    fun createSecretKeyProvider(native: IosNativeKeyStore): SecretKeyProvider =
+        IosSecretKeyProvider(native)
+
+    /**
+     * 🔒 The REAL, encrypted-at-rest store for iOS. JSON blobs are AES-GCM sealed
+     * by [crypto] before they ever reach the (plaintext) NSUserDefaults container.
+     */
+    fun createLocalStore(crypto: SecretKeyProvider): LocalStore =
+        PersistentLocalStore(EncryptedKeyValueStorage(IosKeyValueStorage(), crypto))
 
     fun createReminderService(store: LocalStore, scheduler: ReminderScheduler): ReminderService =
         ReminderService(store, scheduler, SystemClock)
@@ -80,11 +100,16 @@ object IosFactories {
      * Step-2 memory engine for iOS. The vector index persists through its own
      * [IosKeyValueStorage] suite so it survives restarts independently of the
      * entity store.
+     *
+     * 🔒 Step 5: the embedding vectors are derived from user content, so the index
+     * suite is also wrapped in [EncryptedKeyValueStorage] with the same [crypto].
      */
-    fun createMemoryService(store: LocalStore, embedder: Embedder): MemoryService =
+    fun createMemoryService(store: LocalStore, embedder: Embedder, crypto: SecretKeyProvider): MemoryService =
         MemoryService(
             embedder = embedder,
-            index = InMemoryVectorIndex(IosKeyValueStorage("vector_index")),
+            index = InMemoryVectorIndex(
+                EncryptedKeyValueStorage(IosKeyValueStorage("vector_index"), crypto),
+            ),
             store = store,
         )
 
@@ -102,10 +127,11 @@ object IosFactories {
         llm: OnDeviceLlm,
         store: LocalStore,
         embedder: Embedder,
+        crypto: SecretKeyProvider,
         cloudConfig: CloudConfig?,
     ): ConversationService = ConversationService(
         llm = llm,
-        memory = createMemoryService(store, embedder),
+        memory = createMemoryService(store, embedder, crypto),
         escalationPolicy = HeuristicEscalationPolicy(),
         payloadPrep = DefaultPayloadPrep(),
         cloudClient = cloudConfig?.let { HttpCloudClient(it) } ?: UnavailableCloudClient,

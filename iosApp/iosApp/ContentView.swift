@@ -5,13 +5,20 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        TabView {
-            NotesView()
-                .tabItem { Label("Notes", systemImage: "note.text") }
-            RemindersView()
-                .tabItem { Label("Reminders", systemImage: "bell") }
-            PlanView()
-                .tabItem { Label("Plan", systemImage: "checklist") }
+        // 🔒 Step 5: gate the app behind first-run encryption setup. Until a key
+        // exists (and, for a new key, the user has confirmed they saved the
+        // recovery code), no encrypted store exists and the app is not shown.
+        if model.needsSetup {
+            RecoverySetupView()
+        } else {
+            TabView {
+                NotesView()
+                    .tabItem { Label("Notes", systemImage: "note.text") }
+                RemindersView()
+                    .tabItem { Label("Reminders", systemImage: "bell") }
+                PlanView()
+                    .tabItem { Label("Plan", systemImage: "checklist") }
+            }
         }
     }
 }
