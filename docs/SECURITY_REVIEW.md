@@ -76,6 +76,28 @@ crypto** (AES-256-GCM, PBKDF2-HMAC-SHA256), never hand-rolled primitives.
   Keystore/Enclave impls and is **not verifiable in this shared layer**.
 - This layer needs the human review above before **any** real user data is stored.
 
+### ⚠️ Platform wiring vs. recovery-escrow gap — REVIEW + COMPLETE before real users
+The shared `RecoveryManager` defines the canonical **dual-wrap escrow** (DEK
+wrapped under BOTH the hardware key AND a recovery-code-derived key), which is
+what enables **cross-device restore** with only the recovery code. **That full
+escrow is not yet wired end-to-end on either platform.** What the platform slices
+actually do today:
+- **Android:** the encrypted store + `AndroidSecretKeyProvider` (Keystore
+  AES-256-GCM) are wired into `AppContainer`. The first-run `RecoverySetupScreen`
+  generates/displays/confirms a recovery code and persists a salted **PBKDF2
+  verifier** (`onboarding/RecoveryCode`, `SecuritySetupRepository`) — it **captures
+  and verifies** the code but does **not** yet escrow a re-derivable DEK off the
+  device. So the keystore key is device-bound: lose the device → the code alone
+  cannot currently restore data on a new device.
+- **iOS:** `IosSecretKeyStore` (Secure Enclave + CryptoKit) + `RecoverySetupView`
+  capture/confirm the code with their own `RecoveryCode` encoding; same gap.
+
+**To complete (gated):** wire each platform's recovery path through the shared
+`RecoveryManager` dual-wrap so the user-held code can actually restore the wallet
+on a new device, then re-review. Until then the no-recovery warning copy ("lose
+the device **and** the code → data is unrecoverable; the company cannot reset it")
+is literally true, and cross-device recovery must not be promised to users.
+
 ### Tests (`:shared:jvmTest`, green)
 `AeadAndProviderTest`, `EncryptedKeyValueStorageTest`, `RecoveryManagerTest`,
 `RecoveryCodeTest`: encrypt→decrypt round-trip (incl. AAD, wrong-key, tamper);

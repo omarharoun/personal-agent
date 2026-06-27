@@ -4,6 +4,7 @@ import android.content.Context
 import com.personalagent.android.embedding.EmbedderFactory
 import com.personalagent.android.llm.LlmModelProvisioning
 import com.personalagent.android.notification.AndroidReminderScheduler
+import com.personalagent.android.onboarding.SecuritySetupRepository
 import com.personalagent.shared.cloud.CloudClient
 import com.personalagent.shared.cloud.CloudConfig
 import com.personalagent.shared.cloud.DefaultPayloadPrep
@@ -15,8 +16,12 @@ import com.personalagent.shared.conversation.OnDeviceLlm
 import com.personalagent.shared.memory.Embedder
 import com.personalagent.shared.memory.InMemoryVectorIndex
 import com.personalagent.shared.memory.MemoryService
+import com.personalagent.shared.crypto.AndroidSecretKeyProvider
+import com.personalagent.shared.crypto.SecretKeyProvider
 import com.personalagent.shared.reminder.ReminderService
 import com.personalagent.shared.store.AndroidKeyValueStorage
+import com.personalagent.shared.crypto.EncryptedKeyValueStorage
+import com.personalagent.shared.store.KeyValueStorage
 import com.personalagent.shared.store.LocalStore
 import com.personalagent.shared.store.PersistentLocalStore
 import com.personalagent.shared.util.SystemClock
@@ -25,8 +30,12 @@ import com.personalagent.shared.util.SystemClock
  * Tiny manual DI container. Wires the shared business objects to their Android
  * implementations in one place. (Step 1 has no DI framework on purpose.)
  *
- * 🔒 Step 5 swap point: replace [AndroidKeyValueStorage] here with an encrypted
- * implementation; nothing else in the app changes.
+ * 🔒 Step 5 (DONE): the local store is now the real **encrypted** store —
+ * [EncryptedKeyValueStorage] sealing every value with the hardware-backed
+ * [AndroidSecretKeyProvider] before the plaintext [AndroidKeyValueStorage]
+ * persists the ciphertext. The Step-1 plaintext SharedPreferences placeholder is
+ * now only the ciphertext sink. Nothing above [KeyValueStorage] changed.
+ * NOT-FOR-REAL-USERS until SECURITY_REVIEW Gate 1 sign-off.
  *
  * @param cloudConfig OFF by default (null) → cloud escalation is unavailable.
  *   To enable Step-4 cloud escalation, pass a [CloudConfig] for a **zero-retention
@@ -39,8 +48,34 @@ class AppContainer(
 ) {
     private val appContext = context.applicationContext
 
+    /**
+     * 🔒 The single hardware-backed key provider (AndroidKeyStore AES-256-GCM)
+     * shared by every encrypted store below. One alias, one key; [ensureKey] is
+     * idempotent so each [encrypted] wrapper can safely re-ensure it.
+     */
+    private val secretKeyProvider: SecretKeyProvider = AndroidSecretKeyProvider()
+
+    /**
+     * 🔒 Build an encrypted [KeyValueStorage]: values are sealed by
+     * [secretKeyProvider] and the ciphertext persisted by the plaintext
+     * [AndroidKeyValueStorage] file [fileName]. This is the Step-5 replacement for
+     * using [AndroidKeyValueStorage] directly.
+     */
+    private fun encrypted(fileName: String): KeyValueStorage =
+        EncryptedKeyValueStorage(
+            delegate = AndroidKeyValueStorage(appContext, fileName),
+            crypto = secretKeyProvider,
+        )
+
     val store: LocalStore =
-        PersistentLocalStore(AndroidKeyValueStorage(appContext))
+        PersistentLocalStore(encrypted("personal_agent_store"))
+
+    /**
+     * 🔒 First-run recovery-code setup state (verifier sealed at rest). The UI
+     * gates app entry on [SecuritySetupRepository.isComplete].
+     */
+    val securitySetup: SecuritySetupRepository =
+        SecuritySetupRepository(encrypted("security_setup"))
 
     val reminderService: ReminderService =
         ReminderService(
@@ -74,13 +109,13 @@ class AppContainer(
 
     /**
      * Step-2 long-term memory engine (semantic retrieval + recording). The vector
-     * index persists through its own [AndroidKeyValueStorage] file so it survives
-     * restarts independently of the entity store.
+     * index persists through its own **encrypted** store (the embeddings are
+     * derived from user content, so they are sealed at rest like everything else).
      */
     val memoryService: MemoryService by lazy {
         MemoryService(
             embedder = embedder,
-            index = InMemoryVectorIndex(AndroidKeyValueStorage(appContext, "vector_index")),
+            index = InMemoryVectorIndex(encrypted("vector_index")),
             store = store,
         )
     }
