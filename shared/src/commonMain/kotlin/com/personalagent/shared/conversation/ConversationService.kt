@@ -1,6 +1,8 @@
 package com.personalagent.shared.conversation
 
 import com.personalagent.shared.cache.CachedUnderstanding
+import com.personalagent.shared.cache.CloudUsageRecorder
+import com.personalagent.shared.cache.NoOpCloudUsageRecorder
 import com.personalagent.shared.cache.NoOpSemanticCache
 import com.personalagent.shared.cache.SemanticCache
 import com.personalagent.shared.cloud.CloudClient
@@ -60,6 +62,10 @@ import kotlinx.coroutines.flow.flow
  * @param cloudClient remote model used on escalation (default: unavailable/throws).
  * @param semanticCache accumulated understanding consulted before escalating; a
  *   strong hit keeps the turn local (default: no-op cache — always misses).
+ * @param cloudUsageRecorder telemetry hook called once per turn — `recordLocal()`
+ *   for an on-device/cache-hit turn, `recordCloud()` for an escalated turn — so the
+ *   Step-6 property (cloud usage falls as the cache learns) is measurable (default:
+ *   no-op).
  */
 class ConversationService(
     private val llm: OnDeviceLlm,
@@ -71,6 +77,7 @@ class ConversationService(
     private val payloadPrep: PayloadPrep = PassthroughPayloadPrep(),
     private val cloudClient: CloudClient = UnavailableCloudClient,
     private val semanticCache: SemanticCache = NoOpSemanticCache,
+    private val cloudUsageRecorder: CloudUsageRecorder = NoOpCloudUsageRecorder,
 ) {
 
     /**
@@ -91,8 +98,11 @@ class ConversationService(
         val cached = semanticCache.lookup(turn)
 
         val reply = if (cached.isEmpty() && shouldEscalate(turn, context)) {
+            cloudUsageRecorder.recordCloud()
             escalate(turn, context)
         } else {
+            // Local turn (on-device generation, incl. a semantic-cache hit).
+            cloudUsageRecorder.recordLocal()
             val prompt = promptBuilder.build(turn, ground(context, cached))
             llm.generate(prompt, options)
         }
@@ -120,6 +130,7 @@ class ConversationService(
         val cached = semanticCache.lookup(turn)
 
         if (cached.isEmpty() && shouldEscalate(turn, context)) {
+            cloudUsageRecorder.recordCloud()
             // Cloud completion is non-streaming; emit the rehydrated answer as a
             // single chunk so the stream contract still holds (concatenation == reply).
             val answer = escalate(turn, context)
@@ -128,6 +139,8 @@ class ConversationService(
             return@flow
         }
 
+        // Local turn (on-device streaming, incl. a semantic-cache hit).
+        cloudUsageRecorder.recordLocal()
         val prompt = promptBuilder.build(turn, ground(context, cached))
 
         val full = StringBuilder()
