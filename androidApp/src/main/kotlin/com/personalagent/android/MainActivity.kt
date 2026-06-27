@@ -17,6 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.personalagent.android.ui.AppScreen
 import com.personalagent.android.ui.AppViewModel
 import com.personalagent.android.ui.RecoverySetupScreen
+import com.personalagent.android.ui.SafetyViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,7 +48,10 @@ class MainActivity : ComponentActivity() {
                     })
                 } else {
                     val vm: AppViewModel = viewModel(factory = AppViewModel.Factory(container))
-                    AppScreen(vm)
+                    // 🔒 Step 7: consent-first crisis-safety surface (autonomous action disabled).
+                    val safetyVm: SafetyViewModel =
+                        viewModel(factory = SafetyViewModel.Factory(container))
+                    AppScreen(vm, safetyVm)
                 }
             }
         }

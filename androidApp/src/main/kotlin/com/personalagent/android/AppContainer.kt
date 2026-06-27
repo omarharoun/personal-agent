@@ -19,6 +19,14 @@ import com.personalagent.shared.memory.MemoryService
 import com.personalagent.shared.crypto.AndroidSecretKeyProvider
 import com.personalagent.shared.crypto.SecretKeyProvider
 import com.personalagent.shared.reminder.ReminderService
+import com.personalagent.shared.safety.CrisisRecognizer
+import com.personalagent.shared.safety.CrisisResourceProvider
+import com.personalagent.shared.safety.CrisisResponder
+import com.personalagent.shared.safety.DefaultCrisisResourceProvider
+import com.personalagent.shared.safety.DefaultCrisisResponder
+import com.personalagent.shared.safety.DisabledCrisisRecognizer
+import com.personalagent.shared.safety.PersistentTrustedContactsStore
+import com.personalagent.shared.safety.TrustedContactsStore
 import com.personalagent.shared.store.AndroidKeyValueStorage
 import com.personalagent.shared.crypto.EncryptedKeyValueStorage
 import com.personalagent.shared.store.KeyValueStorage
@@ -76,6 +84,38 @@ class AppContainer(
      */
     val securitySetup: SecuritySetupRepository =
         SecuritySetupRepository(encrypted("security_setup"))
+
+    /**
+     * 🔒 CRISIS-CRITICAL (Step 7) — consent-first crisis-safety wiring. 🔒
+     *
+     * The user's pre-chosen trusted contacts, sealed at rest via the same encrypted
+     * [KeyValueStorage] as everything else. The UI captures explicit consent up front
+     * when a contact is added.
+     */
+    val trustedContactsStore: TrustedContactsStore =
+        PersistentTrustedContactsStore(encrypted("trusted_contacts"))
+
+    /**
+     * 🔒 Placeholder crisis resources — clearly-labelled starting points pending a
+     * crisis expert's review/localization. The support surface shows that caveat.
+     */
+    val crisisResourceProvider: CrisisResourceProvider = DefaultCrisisResourceProvider()
+
+    /**
+     * 🔒 Auto-detection is OFF by default: [DisabledCrisisRecognizer] never reports
+     * distress, so nothing is auto-triggered and there are no false alarms. The
+     * support surface is still reachable on demand. The sibling's real recognizer is
+     * wired here only after SECURITY_REVIEW Gate 2 (crisis) sign-off.
+     */
+    val crisisRecognizer: CrisisRecognizer = DisabledCrisisRecognizer
+
+    /**
+     * 🔒 Builds the supportive, consent-first surface. It assembles copy + resources
+     * + the user's trusted contacts and contacts NO ONE — there is no autonomous
+     * path. NOT-FOR-REAL-USERS until the crisis-expert gate is passed.
+     */
+    val crisisResponder: CrisisResponder =
+        DefaultCrisisResponder(crisisResourceProvider, trustedContactsStore)
 
     val reminderService: ReminderService =
         ReminderService(
