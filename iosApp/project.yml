@@ -16,6 +16,16 @@ settings:
     # Where Gradle drops the compiled `Shared.framework` for the active config.
     FRAMEWORK_SEARCH_PATHS:
       - "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+# MLX Swift powers the Step-3 on-device LLM (IosOnDeviceLlm). MLX is
+# **Apple-silicon (arm64) only** — it builds/runs on real devices and the arm64
+# iOS simulator, NOT the legacy x86_64 simulator. Pin a recent tag and confirm it
+# resolves on the first Mac build (the verification gate). Until this package is
+# added, `#if canImport(MLXLLM)` keeps the app compiling with the LLM reporting
+# unavailable, so the rest of the app is unaffected.
+packages:
+  mlx-swift-examples:
+    url: https://github.com/ml-explore/mlx-swift-examples.git
+    from: "2.25.0"
 targets:
   iosApp:
     type: application
@@ -31,6 +41,12 @@ targets:
     dependencies:
       - framework: Shared.framework
         embed: true
+      # MLX LLM runtime + common generation helpers (products of mlx-swift-examples).
+      # MLX (the core array lib) is pulled in transitively.
+      - package: mlx-swift-examples
+        product: MLXLLM
+      - package: mlx-swift-examples
+        product: MLXLMCommon
     # Build the shared framework before compiling Swift, so `import Shared` resolves.
     preBuildScripts:
       - name: "Build shared KMP framework"

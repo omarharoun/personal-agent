@@ -47,6 +47,16 @@ Pods/
 *.onnx
 *.tflite
 
+# --- On-device LLM weights (Step 3) ---
+# The iOS LLM (MLX Swift, quantized Llama 3.2) and any Android GGUF model are
+# provisioned at runtime into app-private storage, NEVER committed (a 4-bit 3B
+# model is ~1.8 GB). These patterns keep weights out of git wherever staged.
+*.safetensors
+*.gguf
+*.npz
+models/
+**/models/
+
 # --- macOS / misc ---
 .DS_Store
 *.log
