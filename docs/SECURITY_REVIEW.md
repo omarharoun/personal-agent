@@ -2,9 +2,11 @@
 
 This file tracks the **🔒 HUMAN-REVIEW-REQUIRED gates** from the build brief.
 A gate must be reviewed and signed off by a human before the corresponding
-feature ships to real users. Gate 2 is **NOT BUILT**; Gate 1 (Step 5 encryption
-+ recovery) and Gate 3 (Step 4 cloud-escalation anonymizer) are **BUILT but
-PENDING HUMAN SECURITY REVIEW**. All remain **NOT FOR REAL USERS** until signed off.
+feature ships to real users. Gate 2 (Step 7 crisis safety) now has its
+**consent-first spine BUILT** with the **autonomous trigger DISABLED**, pending
+human + crisis-response-expert review; Gate 1 (Step 5 encryption + recovery) and
+Gate 3 (Step 4 cloud-escalation anonymizer) are **BUILT but PENDING HUMAN
+SECURITY REVIEW**. All remain **NOT FOR REAL USERS** until signed off.
 
 > Step 1 scope is a thin, AI-free foundation. No real user data should be stored
 > in this app yet — the persistence layer is an explicit unencrypted placeholder
@@ -109,17 +111,85 @@ on a fresh device; recovery codes high-entropy & unique.
 
 ## 🔒 Gate 2 — Crisis autonomous action / placing a call (Step 7)
 
-**Status: NOT-YET-BUILT · NOT-FOR-REAL-USERS**
+**Status: BUILT (consent-first spine) · AUTONOMOUS-TRIGGER-DISABLED ·
+PENDING-HUMAN + CRISIS-EXPERT-REVIEW · NOT-FOR-REAL-USERS**
 
-- The brief's crisis feature (the agent autonomously contacting help, e.g.
-  placing a call) is **Step 7** and is **not present anywhere in this codebase**.
-- There is **no** dialing, emergency-contact, or autonomous-action code in
-  Step 1. Do not add any until this gate is designed and human-reviewed.
+🔒 This is the brief's most sensitive gate: someone in genuine distress may be
+the user. The SAFE spine is built; the dangerous autonomous capability is built
+ONLY as an explicitly DISABLED, unimplemented seam. **Nothing in this layer may
+reach a real user until someone with crisis-response expertise has reviewed it,
+and the autonomous trigger must stay disabled until then.** All files in
+`com.personalagent.shared.safety` are marked `// 🔒 CRISIS-CRITICAL (Step 7) —
+autonomous action DISABLED; requires human + crisis-response-expert review;
+NOT-FOR-REAL-USERS.`
 
-**Human review required before Step 7 ships:** false-positive/false-negative
-risk of crisis detection, explicit user consent model, jurisdiction/legal
-constraints on autonomous calling, escalation/oversight, auditability, and
-fail-safe behaviour. This gate must not be implemented by the agent unprompted.
+### What was built — the SAFE, consent-first spine (`feat/step7-shared`)
+
+- **Contract** (`safety/CrisisModel.kt`): `TrustedContact`, `CrisisLevel`
+  (deliberately coarse: `NONE` / `POSSIBLE_DISTRESS` only), `CrisisAssessment`,
+  `CrisisRecognizer`, `CrisisResponse`, `CrisisResource`. Shared verbatim with
+  the Android/iOS crisis-UI slices.
+- **`safety.KeywordCrisisRecognizer`** — a deliberately **coarse**, whole-phrase
+  keyword recognizer that biases hard toward `NONE` and only flags
+  `POSSIBLE_DISTRESS` on a small, curated, unambiguous phrase list. It documents
+  that real recognition is hard, that it both misses and false-alarms, and that
+  a positive result **only gates whether a supportive offer is shown** — it never
+  drives any action.
+- **`safety.CrisisResponder`** — consent-first response that (a) gently
+  encourages the user to reach out **themselves** to someone they trust, (b)
+  surfaces real, region-aware resources, and (c) offers help contacting someone
+  **only if the user clearly asks**. Reviewed copy rules enforced: no reflective
+  listening that repeats/amplifies distress; **no confidentiality or "authorities
+  won't be involved" claims**; warm, brief, non-clinical. Returns `null` for
+  `NONE` so ordinary conversation is never interrupted.
+- **`safety.CrisisResourceProvider` + `DefaultCrisisResourceProvider`** —
+  resources are **configurable and region-aware**, never a single hard-coded
+  stale number. The default is loudly marked **"VERIFY + LOCALIZE current crisis
+  resources before real users"** and prefers pointing to the user's own region's
+  services; a code comment requires confirming accurate resources at build time.
+- **`safety.TrustedContactsStore`** — persists contacts through the existing
+  encrypted `store.KeyValueStorage` seam (Step 5 swap point). **Consent-first:**
+  `add` requires a positive `consentedAt` and refuses to store a contact without
+  it — there is no path to persist a contact without up-front consent.
+
+### What was built but **DISABLED** — the dangerous autonomous part
+
+- **`safety.AutonomousCrisisAction` + `DisabledAutonomousCrisisAction`** — the
+  seam for the app autonomously contacting help **without** in-the-moment consent.
+  The judgment of WHEN an emergency overrides consent is **NOT implemented as an
+  `if`-statement**; it is left as an explicitly DISABLED, unimplemented,
+  review-gated seam. `enabled` is hard-coded `false`; `AutonomousActionOutcome`
+  has **only** a `Refused` variant (there is intentionally no `Acted` path); the
+  default impl always refuses and never contacts anyone, regardless of input.
+  Enabling it requires the human + crisis-expert review below — it is not a flag
+  to flip.
+
+### What to review (and why) before this ships
+1. **Recognition false-alarm / false-negative tradeoff.** The keyword recognizer
+   is intentionally coarse and English-only; it misses most genuine distress and
+   can still false-alarm. Confirm the curated phrase list, the `NONE` bias, and
+   that a positive result can only ever gate an *offer*, never an action, is the
+   right balance for this app's users.
+2. **The override-consent judgment.** Review that autonomously acting against a
+   user's consent must remain unimplemented and disabled until there is an
+   agreed ethical/legal/clinical model. Confirm there is no code path that can
+   reach an "acted" outcome.
+3. **Resource accuracy / localization.** Confirm real, current, region-correct
+   crisis resources replace the placeholder provider for every region served,
+   verified at build time, before any real user sees this.
+4. Also review: explicit consent model for trusted contacts, jurisdiction/legal
+   constraints, escalation/oversight, auditability, and fail-safe behaviour.
+
+### Tests (`:shared:jvmTest`, green)
+`safety.CrisisSafetyTest`: recognizer is conservative (ordinary text → `NONE`,
+incl. idioms like "dying to see it"; clear distress → `POSSIBLE_DISTRESS`);
+rationale does not echo the user's words; responder returns nothing for `NONE`,
+and for distress encourages self-reach-out + includes resources + offers
+consent-based help and contains **no** confidentiality/"no authorities" claims;
+default resources are flagged VERIFY + LOCALIZE; trusted-contacts store
+round-trips with the consent timestamp and rejects contacts without consent;
+**`DisabledAutonomousCrisisAction` never acts regardless of input** (always
+`Refused`, `enabled == false`).
 
 ---
 
@@ -181,6 +251,16 @@ and user-facing copy does not overclaim. Until then: **NOT-FOR-REAL-USERS.**
   BUILT and PENDING-HUMAN-SECURITY-REVIEW. Minimize-first is the primary defense;
   tokenization is best-effort; `RehydrationMap` is on-device-only and never
   serialized off-device.
+- **Step 7:** Gate 2 moved NOT-BUILT → BUILT(consent-first spine)·AUTONOMOUS-
+  TRIGGER-DISABLED·PENDING-HUMAN+CRISIS-EXPERT-REVIEW. Built the SAFE spine
+  (`safety.KeywordCrisisRecognizer` — coarse/conservative; `safety.CrisisResponder`
+  — consent-first, encourages self-reach-out, no confidentiality claims;
+  `safety.CrisisResourceProvider` — region-aware, VERIFY+LOCALIZE flagged;
+  `safety.TrustedContactsStore` — consent captured up front via the encrypted
+  KeyValueStorage seam). Built the dangerous autonomous capability ONLY as a
+  DISABLED, unimplemented, review-gated seam (`safety.AutonomousCrisisAction` /
+  `DisabledAutonomousCrisisAction`, always refuses; no "acted" path). Tested on
+  `:shared:jvmTest`. Must not reach real users until crisis-expert review.
 - **Step 5:** Gate 1 moved NOT-BUILT → BUILT·PENDING-REVIEW. Shared crypto core
   (`crypto.SecretKeyProvider`, `EncryptedKeyValueStorage`, `RecoveryManager` /
   `WrappedDataKey`, `RecoveryCode`, vetted `JvmAead`/`JvmKdf`/`JvmSecureRandom`).
