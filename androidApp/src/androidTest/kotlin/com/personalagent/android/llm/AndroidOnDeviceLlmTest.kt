@@ -2,7 +2,7 @@ package com.personalagent.android.llm
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.personalagent.shared.llm.GenOptions
+import com.personalagent.shared.conversation.GenOptions
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue

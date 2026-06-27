@@ -3,8 +3,8 @@ package com.personalagent.android.llm
 import android.content.Context
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
-import com.personalagent.shared.llm.GenOptions
-import com.personalagent.shared.llm.OnDeviceLlm
+import com.personalagent.shared.conversation.GenOptions
+import com.personalagent.shared.conversation.OnDeviceLlm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow

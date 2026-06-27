@@ -4,7 +4,7 @@ import android.content.Context
 import com.personalagent.android.embedding.EmbedderFactory
 import com.personalagent.android.llm.LlmModelProvisioning
 import com.personalagent.android.notification.AndroidReminderScheduler
-import com.personalagent.shared.llm.OnDeviceLlm
+import com.personalagent.shared.conversation.OnDeviceLlm
 import com.personalagent.shared.memory.Embedder
 import com.personalagent.shared.reminder.ReminderService
 import com.personalagent.shared.store.AndroidKeyValueStorage

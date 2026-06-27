@@ -47,13 +47,20 @@ Pods/
 *.onnx
 *.tflite
 
-# --- On-device LLM models (Step 3) ---
-# Small LLM weights (.task / .bin / .litertlm, ~0.5–2 GB) are pushed to the
-# device, never committed and never packaged in the APK. See README "On-device
-# LLM" and LlmModelProvisioning.
+# --- On-device LLM weights (Step 3) ---
+# Small LLM weights are provisioned to the device at runtime, NEVER committed and
+# never packaged in the APK: Android MediaPipe `.task` bundles (~0.5–2 GB) and
+# iOS MLX (quantized Llama 3.2, ~1.8 GB for a 4-bit 3B) / any GGUF model. These
+# patterns keep weights out of git wherever staged. See the READMEs +
+# LlmModelProvisioning / LlmModelProvisioner.
 *.task
 *.litertlm
+*.safetensors
+*.gguf
+*.npz
 androidApp/src/main/assets/models/llm/
+models/
+**/models/
 
 # --- macOS / misc ---
 .DS_Store

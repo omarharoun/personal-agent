@@ -1,5 +1,9 @@
 package com.personalagent.shared.ios
 
+import com.personalagent.shared.conversation.GenOptions
+import com.personalagent.shared.llm.IosLlmAdapter
+import com.personalagent.shared.llm.IosNativeLlm
+import com.personalagent.shared.conversation.OnDeviceLlm
 import com.personalagent.shared.memory.Embedder
 import com.personalagent.shared.memory.IosEmbedderAdapter
 import com.personalagent.shared.memory.IosNativeEmbedder
@@ -44,6 +48,25 @@ object IosFactories {
      */
     fun createEmbedder(native: IosNativeEmbedder): Embedder =
         IosEmbedderAdapter(native)
+
+    /**
+     * Wrap the Swift-provided on-device LLM ([IosNativeLlm], implemented by
+     * `IosOnDeviceLlm` over MLX Swift) as the shared [OnDeviceLlm] (Step 3).
+     *
+     * Provided FROM Swift for the same reason as the embedder/scheduler — it uses
+     * native (MLX / Metal) APIs that live on the Swift side. The returned
+     * [OnDeviceLlm] satisfies the `suspend`/`Flow` contract; the Swift seam itself
+     * stays synchronous. See [createEmbedder] for the mirror pattern.
+     */
+    fun createOnDeviceLlm(native: IosNativeLlm): OnDeviceLlm =
+        IosLlmAdapter(native)
+
+    /**
+     * Build [GenOptions] from Swift. Kotlin default arguments don't cross the
+     * ObjC/Swift bridge, so SwiftUI can't write `GenOptions()`; this factory
+     * supplies the Step-3 defaults (maxTokens=512, temperature=0.7, no stops).
+     */
+    fun defaultGenOptions(): GenOptions = GenOptions()
 
     fun systemClock(): Clock = SystemClock
 }

@@ -1,7 +1,7 @@
 package com.personalagent.android.llm
 
 import android.content.Context
-import com.personalagent.shared.llm.OnDeviceLlm
+import com.personalagent.shared.conversation.OnDeviceLlm
 import java.io.File
 
 /**

@@ -24,6 +24,23 @@ final class AppModel: ObservableObject {
     /// — mirroring how `reminderService` is constructed above.
     private let embedder: Embedder
 
+    /// On-device, no-network LLM (MLX Swift, quantized Llama 3.2) bridged to the
+    /// shared `OnDeviceLlm` contract (Step 3). `isAvailable` reflects whether the
+    /// model weights have been provisioned on this device (see
+    /// `LlmModelProvisioner`). Held here ready to back assistant features in later
+    /// steps; nothing above the `OnDeviceLlm` contract changes when they land.
+    ///
+    /// `generate` (a Kotlin `suspend` fun) is consumed cleanly from Swift as
+    /// `async` below. The token-streaming variant (`generateStream` → Kotlin
+    /// `Flow<String>`) is driven on the iOS side by `IosOnDeviceLlm`'s `onToken`
+    /// callback and is consumed by shared Kotlin code; we deliberately do not
+    /// consume the raw Kotlin `Flow` from Swift (that's the fragile interop
+    /// corner — see `IosLlmAdapter`).
+    private let llm: OnDeviceLlm
+
+    /// Exposed to the UI so it can show whether the local model is ready.
+    @Published var llmAvailable: Bool = false
+
     init() {
         self.store = IosFactories.shared.createLocalStore()
         self.reminderService = IosFactories.shared.createReminderService(
@@ -31,7 +48,24 @@ final class AppModel: ObservableObject {
             scheduler: IosReminderScheduler()
         )
         self.embedder = IosFactories.shared.createEmbedder(native: IosEmbedder())
+        self.llm = IosFactories.shared.createOnDeviceLlm(native: IosOnDeviceLlm())
         self.clock = IosFactories.shared.systemClock()
+        self.llmAvailable = llm.isAvailable
+    }
+
+    /// One-shot prompt → full completion, fully on-device. Returns nil and sets
+    /// `message` if the model hasn't been provisioned yet.
+    func askLocalModel(_ prompt: String) async -> String? {
+        guard llm.isAvailable else {
+            message = "On-device model not installed yet."
+            return nil
+        }
+        do {
+            return try await llm.generate(prompt: prompt, options: IosFactories.shared.defaultGenOptions())
+        } catch {
+            message = "Generation failed: \(error.localizedDescription)"
+            return nil
+        }
     }
 
     func refresh() async {
