@@ -133,6 +133,50 @@ Built & tested in a Linux dev sandbox (Gradle 9.6.1 on a JDK, Android SDK 36):
   executed here — no emulator/device in the sandbox.)*
 - **iOS on-device:** code complete; verify on your Mac per `iosApp/README.md`.
 
+## On-device embeddings (Step 2 — Android)
+
+Semantic memory recall needs to turn text into vectors **on-device, fully
+offline**. The Android side implements the shared `Embedder` contract:
+
+```kotlin
+// shared/commonMain (com.personalagent.shared.memory) — platform-agnostic contract
+interface Embedder { val dimension: Int; suspend fun embed(text: String): FloatArray }
+```
+
+**Model + runtime:** [`all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
+(Sentence-Transformers, 384-dim) exported to ONNX, run with **ONNX Runtime
+Mobile** (`com.microsoft.onnxruntime:onnxruntime-android`). Chosen because it is
+small (~90 MB fp32), strong general-purpose sentence quality, a stable ONNX
+export, and ORT Mobile is a mature, self-contained native runtime with no server
+and no Google Play Services dependency. Pipeline: WordPiece tokenize → transformer
+→ **mean-pool** over the attention mask → **L2-normalize** (so a dot product is
+cosine similarity).
+
+| Piece | File |
+|-------|------|
+| Contract (owned by `feat/step2-shared`) | `shared/.../memory/Embedder.kt` |
+| Implementation | `androidApp/.../embedding/AndroidEmbedder.kt` |
+| Tokenizer (pure Kotlin WordPiece) | `androidApp/.../embedding/BertTokenizer.kt` |
+| Factory (how the app obtains it) | `androidApp/.../embedding/EmbedderFactory.kt` |
+| Wiring | `AppContainer.embedder` / `AppContainer.isEmbeddingModelInstalled` |
+| On-device test (self-skips if absent) | `androidApp/src/androidTest/.../AndroidEmbedderTest.kt` |
+
+### Provisioning the model (kept OUT of git)
+
+The ~90 MB weights are **not** committed — `androidApp/src/main/assets/models/`
+is gitignored. Fetch the model + vocab into app assets once:
+
+```bash
+./gradlew :androidApp:downloadEmbeddingModel
+```
+
+This downloads `onnx/model.onnx` and `vocab.txt` from Hugging Face into
+`androidApp/src/main/assets/models/all-MiniLM-L6-v2/`. (You can also drop those
+two files there by hand.) The `.onnx` asset is kept uncompressed
+(`androidResources.noCompress += "onnx"`) so ORT loads it efficiently. Clones
+without the asset still build — `EmbedderFactory.isModelInstalled()` reports
+`false` and the app can gate semantic features or prompt to download.
+
 ## Deferred to later steps (NOT decided here)
 
 Flagged so they aren't mistaken for Step-1 work:

@@ -22,6 +22,11 @@ release/
 *.klib
 kotlin-js-store/
 
+# --- On-device ML model assets (provisioned via Gradle, not committed) ---
+# all-MiniLM-L6-v2 weights (~90 MB) + vocab — fetched by
+# `./gradlew :androidApp:downloadEmbeddingModel`. See README "On-device embeddings".
+androidApp/src/main/assets/models/
+
 # --- Xcode / iOS ---
 # The .xcodeproj is generated from iosApp/project.yml (XcodeGen) — do not commit it.
 iosApp/*.xcodeproj/
