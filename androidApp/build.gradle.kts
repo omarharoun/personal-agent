@@ -58,6 +58,9 @@ dependencies {
     // On-device embeddings (Step 2): all-MiniLM-L6-v2 via ONNX Runtime Mobile.
     implementation(libs.onnxruntime.android)
 
+    // On-device LLM (Step 3): small local model via MediaPipe LLM Inference API.
+    implementation(libs.mediapipe.tasks.genai)
+
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
@@ -108,4 +111,42 @@ tasks.register("downloadEmbeddingModel") {
             logger.lifecycle("✔ saved ${dest.length()} bytes → $dest")
         }
     }
+}
+
+// --- On-device LLM model provisioning (Step 3) ------------------------------
+//
+// The small LLM weights (`.task` bundle, ~0.5–2 GB) are NOT committed to git and
+// are NOT packaged in the APK — they are pushed to the device and loaded from a
+// real file path at runtime (see LlmModelProvisioning). The model is gated
+// (Gemma / Llama require accepting a license on Hugging Face / Kaggle), so there
+// is no unauthenticated direct download: obtain the `.task` file yourself, then
+// run this task to push it to the app's external-files dir.
+//
+//     ./gradlew :androidApp:pushLlmModel -PllmModel=/abs/path/gemma3-1b-it-int4.task
+//
+// Clones / installs without the model still build and run — the feature is gated
+// by LlmModelProvisioning.isModelInstalled() / OnDeviceLlm.isAvailable.
+tasks.register<Exec>("pushLlmModel") {
+    group = "ml"
+    description = "adb-push a local .task LLM bundle to the app's external files dir."
+
+    val appId = android.defaultConfig.applicationId
+    val modelPath = (project.findProperty("llmModel") as String?)
+    val deviceDir = "/sdcard/Android/data/$appId/files/models/llm"
+    // Default filename the app looks for (keep in sync with LlmModelProvisioning).
+    val deviceFile = "$deviceDir/gemma3-1b-it-int4.task"
+
+    doFirst {
+        require(modelPath != null) {
+            "Provide the model path: -PllmModel=/abs/path/to/model.task"
+        }
+        require(File(modelPath).exists()) { "Model file not found: $modelPath" }
+        logger.lifecycle("↑ pushing $modelPath → $deviceFile")
+    }
+    // Single shell invocation: make the dir, then push. Resolved lazily so a
+    // configuration pass without -PllmModel doesn't fail; doFirst enforces it.
+    commandLine(
+        "sh", "-c",
+        "adb shell mkdir -p \"$deviceDir\" && adb push \"${modelPath ?: ""}\" \"$deviceFile\"",
+    )
 }

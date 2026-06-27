@@ -16,6 +16,8 @@ androidx-test-runner = "1.6.2"
 
 # On-device ML — ONNX Runtime Mobile for the all-MiniLM-L6-v2 embedder (Step 2).
 onnxruntime = "1.20.0"
+# On-device LLM — MediaPipe LLM Inference API for a small local model (Step 3).
+mediapipeGenai = "0.10.24"
 
 # Android SDK levels
 compileSdk = "36"
@@ -35,6 +37,7 @@ androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtim
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "androidx-work" }
 
 onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android", version.ref = "onnxruntime" }
+mediapipe-tasks-genai = { module = "com.google.mediapipe:tasks-genai", version.ref = "mediapipeGenai" }
 
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-test-junit" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidx-test-runner" }

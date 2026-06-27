@@ -177,6 +177,73 @@ two files there by hand.) The `.onnx` asset is kept uncompressed
 without the asset still build — `EmbedderFactory.isModelInstalled()` reports
 `false` and the app can gate semantic features or prompt to download.
 
+## On-device LLM (Step 3 — Android)
+
+Local generation needs a small language model that runs **on-device, fully
+offline**. The Android side implements the shared `OnDeviceLlm` contract:
+
+```kotlin
+// shared/commonMain (com.personalagent.shared.llm) — platform-agnostic contract
+data class GenOptions(val maxTokens: Int = 512, val temperature: Float = 0.7f, val stop: List<String> = emptyList())
+interface OnDeviceLlm {
+    val isAvailable: Boolean
+    suspend fun generate(prompt: String, options: GenOptions = GenOptions()): String
+    fun generateStream(prompt: String, options: GenOptions = GenOptions()): Flow<String>
+}
+```
+
+**Runtime + model:** **MediaPipe LLM Inference API**
+(`com.google.mediapipe:tasks-genai`) running **Gemma 3 1B (int4)** as the default
+`.task` bundle. Chosen because MediaPipe is a mature, self-contained native
+runtime (GPU/CPU, **no** Google Play Services, no server), and Gemma 3 1B int4 is
+the smallest credible instruct model (~0.5 GB) so it fits a phone's RAM budget.
+**Llama 3.2 3B** is a drop-in higher-quality alternative (larger footprint) — set
+a different `.task` filename and push it instead. Per the spec the final pick is a
+**measurement decision on the target phone** (latency / RAM / quality); the
+default is just a sensible starting point, and the model path is configurable.
+
+Mapping `GenOptions` onto MediaPipe:
+
+| Option | How it's applied |
+|--------|------------------|
+| `temperature` | set on a fresh `LlmInferenceSession` per request |
+| `maxTokens` | enforced client-side (stop after N streamed deltas); the engine is created with a generous KV capacity |
+| `stop` | enforced client-side: emission halts at the first stop sequence and the trailing stop text is trimmed |
+
+`generate` is implemented on top of `generateStream`, so blocking and streaming
+calls share identical maxTokens/stop semantics. Access is serialized with a
+`Mutex` (the native engine/session are single-use), and all work runs on
+`Dispatchers.Default`. The engine is created lazily on first use.
+
+| Piece | File |
+|-------|------|
+| Contract (owned by `feat/step3-shared`) | `shared/.../llm/OnDeviceLlm.kt` |
+| Implementation (`generate` + stream) | `androidApp/.../llm/AndroidOnDeviceLlm.kt` |
+| Provisioning + factory | `androidApp/.../llm/LlmModelProvisioning.kt` |
+| Wiring | `AppContainer.llm` / `AppContainer.isLlmModelInstalled` |
+| On-device test (self-skips if absent) | `androidApp/src/androidTest/.../llm/AndroidOnDeviceLlmTest.kt` |
+
+### Provisioning the model (kept OUT of git)
+
+The `.task` weights (~0.5–2 GB) are **never** committed (`.gitignore` excludes
+`*.task` / `*.litertlm`) and are **not** packaged in the APK — they are pushed to
+the device and loaded from a real file path at runtime. The models are gated
+(Gemma / Llama require accepting a license on Hugging Face / Kaggle), so there is
+no unauthenticated direct download. Obtain the `.task` bundle yourself, then push
+it with the helper task:
+
+```bash
+./gradlew :androidApp:pushLlmModel -PllmModel=/abs/path/gemma3-1b-it-int4.task
+```
+
+This `adb push`es the file to the app's external-files dir
+(`/sdcard/Android/data/com.personalagent.android/files/models/llm/`). During
+development you can also drop it at `/data/local/tmp/llm/` (the MediaPipe sample
+convention) — `LlmModelProvisioning` checks both. Clones / installs **without**
+the model still build and run: `LlmModelProvisioning.isModelInstalled()` /
+`OnDeviceLlm.isAvailable` report `false` and the app gates the feature off.
+Actual inference requires a real device with enough RAM and the model present.
+
 ## Deferred to later steps (NOT decided here)
 
 Flagged so they aren't mistaken for Step-1 work:
