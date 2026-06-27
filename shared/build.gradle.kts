@@ -31,13 +31,26 @@ kotlin {
         commonMain.dependencies {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
+            // Step 4 cloud transport: portable Ktor client + JSON content negotiation.
+            // The concrete engine is supplied per platform (below) or injected in tests.
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.kotlinx.json)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
+            // MockEngine: exercises HttpCloudClient with no real network.
+            implementation(libs.ktor.client.mock)
         }
         androidMain.dependencies {
             implementation(libs.kotlinx.coroutines.android)
+            // Android cloud engine.
+            implementation(libs.ktor.client.okhttp)
+        }
+        iosMain.dependencies {
+            // iOS cloud engine (NSURLSession-backed).
+            implementation(libs.ktor.client.darwin)
         }
     }
 }
