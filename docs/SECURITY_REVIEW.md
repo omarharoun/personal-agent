@@ -2,9 +2,9 @@
 
 This file tracks the **🔒 HUMAN-REVIEW-REQUIRED gates** from the build brief.
 A gate must be reviewed and signed off by a human before the corresponding
-feature ships to real users. Gates 1 & 2 are **NOT BUILT**; Gate 3 (Step 4
-cloud-escalation anonymizer) is **BUILT but PENDING HUMAN SECURITY REVIEW**.
-All remain **NOT FOR REAL USERS** until signed off.
+feature ships to real users. Gate 2 is **NOT BUILT**; Gate 1 (Step 5 encryption
++ recovery) and Gate 3 (Step 4 cloud-escalation anonymizer) are **BUILT but
+PENDING HUMAN SECURITY REVIEW**. All remain **NOT FOR REAL USERS** until signed off.
 
 > Step 1 scope is a thin, AI-free foundation. No real user data should be stored
 > in this app yet — the persistence layer is an explicit unencrypted placeholder
@@ -14,25 +14,74 @@ All remain **NOT FOR REAL USERS** until signed off.
 
 ## 🔒 Gate 1 — Encryption / key management (Step 5)
 
-**Status: NOT-YET-BUILT · NOT-FOR-REAL-USERS**
+**Status: BUILT · PENDING-HUMAN-SECURITY-REVIEW · NOT-FOR-REAL-USERS**
 
-- The brief requires on-device data to be **encrypted at rest**. That is Step 5.
-- Step 1 ships an **unencrypted** local store behind a stable interface so the
-  encrypted implementation drops in later without touching any caller.
-- Swap point: `com.personalagent.shared.store.KeyValueStorage`.
-  Every implementation is marked `// TODO Step 5: swap for encrypted wallet`:
-  - `InMemoryKeyValueStorage` (commonMain) — tests only.
-  - `AndroidKeyValueStorage` (SharedPreferences, **plaintext**).
-  - `IosKeyValueStorage` (NSUserDefaults, **plaintext**).
-  - `FileKeyValueStorage` (JVM, **plaintext** properties file).
-- `MemoryEntry.embedding` is reserved for an on-device embedding model
-  (tech-from-measurement). The model + vector store choice is **deferred**, not
-  decided here.
+The brief requires on-device data to be **encrypted at rest**, recoverable ONLY
+with the device hardware key OR a user-held recovery code — **never** by the
+company. Step 5's shared crypto core is now BUILT (the testable common layer +
+vetted JVM crypto). It must not ship to a real user until a human signs off.
 
-**Human review required before Step 5 ships:** key generation & storage
-(Keystore/Keychain/Secure Enclave), at-rest cipher choice, key rotation,
-backup/exclusion policy, and a migration path for any data written by the Step-1
-placeholder.
+### What was built (this slice — `feat/step5-shared`)
+
+All files are marked `// 🔒 SECURITY-CRITICAL (Step 5)` and use **vetted standard
+crypto** (AES-256-GCM, PBKDF2-HMAC-SHA256), never hand-rolled primitives.
+
+- **`crypto.SecretKeyProvider`** — the hardware-backed AEAD contract. The platform
+  Keystore / Secure Enclave holds the key; it never leaves hardware. `encrypt`/
+  `decrypt` are AES-GCM with a 12-byte nonce prepended. **Platform impls (Android
+  Keystore / iOS Secure Enclave) are owned by sibling slices and are the part that
+  is only verifiable on-device.**
+- **`crypto.EncryptedKeyValueStorage`** — the **Step-5 swap** at the existing
+  `store.KeyValueStorage` seam (the `// TODO Step 5` placeholder). Wraps any
+  plaintext delegate, encrypting values on write / decrypting on read, so the
+  whole local wallet (memory/notes/reminders/…) is encrypted at rest. The logical
+  key is bound as **AAD** so ciphertext can't be moved between keys. Optional
+  `storageKeyTransform` can make delegate keys opaque (hashed) too.
+- **`crypto.RecoveryManager` + `WrappedDataKey`** — **dual-wrap envelope**. A random
+  256-bit DEK encrypts the wallet; the DEK is wrapped under BOTH (1) the hardware
+  key and (2) a key derived (PBKDF2) from a **high-entropy user-held recovery
+  code** (`crypto.RecoveryCode`, 130-bit, Base32). Only the two wraps + public salt
+  + KDF params are persisted. **🔒 No company-side key path:** the company never
+  sees/stores/can-regenerate the hardware key or the recovery code, so it cannot
+  decrypt or reset access; losing both device key AND code = unrecoverable by design.
+- **Vetted JVM crypto** (`crypto.JvmAead` / `JvmKdf` / `JvmSecureRandom`, jvmMain)
+  and a **software hardware-stand-in** (`SoftwareSecretKeyProvider`, jvmTest) so the
+  layer is fully unit-tested without a device.
+
+### What to review (and why)
+1. **Hardware-key handling.** Verify the Android Keystore / iOS Secure Enclave impls
+   (sibling slices) actually create a non-exportable, hardware-bound AES-GCM key,
+   use a fresh nonce per `encrypt`, and require user auth where intended. **This
+   common layer cannot prove hardware isolation — it is verifiable only on-device.**
+2. **Recovery wrap/unwrap.** Confirm the DEK is the only thing wrapped, both wraps
+   recover the same DEK, the recovery code is generated from a CSPRNG and **never**
+   serialized/logged/persisted (only its *wrap* is), and a wrong code is
+   indistinguishable from a tamper (GCM tag failure — no oracle).
+3. **No company-side key path (the core invariant).** Trace every persistence/
+   transport path and confirm no third escrow/server-held key and no derivable code
+   exists. The recovery path must remain user-only.
+4. **AEAD / nonce usage.** AES-256-GCM, 96-bit random nonce per seal, 128-bit tag,
+   `nonce || ct || tag` layout; AAD binding on the storage seam. Confirm no nonce
+   reuse and that the JVM software keys are never used as a real provider.
+5. **KDF parameters.** PBKDF2-HMAC-SHA256 @ 600k iters is the conservative default
+   floor; assess whether Argon2id/scrypt (memory-hard) should be required for
+   production, and review salt length/uniqueness. Params are self-describing in the
+   blob so they can be raised without breaking existing wraps.
+6. **Migration** of any data written by the Step-1 plaintext placeholder, plus
+   backup/exclusion policy for the wrapped-key blob.
+
+### Honesty / limitations
+- The JVM impls hold the AES key as an in-memory `byte[]` — that is a **test/desktop
+  stand-in**, not hardware isolation. Real key security depends on the on-device
+  Keystore/Enclave impls and is **not verifiable in this shared layer**.
+- This layer needs the human review above before **any** real user data is stored.
+
+### Tests (`:shared:jvmTest`, green)
+`AeadAndProviderTest`, `EncryptedKeyValueStorageTest`, `RecoveryManagerTest`,
+`RecoveryCodeTest`: encrypt→decrypt round-trip (incl. AAD, wrong-key, tamper);
+delegate holds only ciphertext + key-binding swap fails; recovery wrap then unwrap
+with correct code (success) / wrong code (fails) / hardware key; end-to-end recovery
+on a fresh device; recovery codes high-entropy & unique.
 
 ---
 
@@ -110,3 +159,10 @@ and user-facing copy does not overclaim. Until then: **NOT-FOR-REAL-USERS.**
   BUILT and PENDING-HUMAN-SECURITY-REVIEW. Minimize-first is the primary defense;
   tokenization is best-effort; `RehydrationMap` is on-device-only and never
   serialized off-device.
+- **Step 5:** Gate 1 moved NOT-BUILT → BUILT·PENDING-REVIEW. Shared crypto core
+  (`crypto.SecretKeyProvider`, `EncryptedKeyValueStorage`, `RecoveryManager` /
+  `WrappedDataKey`, `RecoveryCode`, vetted `JvmAead`/`JvmKdf`/`JvmSecureRandom`).
+  Encrypts the whole local wallet at rest (AES-256-GCM); DEK dual-wrapped under the
+  hardware key AND a high-entropy user-held recovery code (PBKDF2) — **no
+  company-side key path**. Hardware isolation is verifiable only on-device (sibling
+  Keystore/Enclave slices). Tested on `:shared:jvmTest`.
