@@ -107,9 +107,38 @@ Requires a **JDK** (not just a JRE) and, for Android, the **Android SDK**
 ./gradlew :androidApp:assembleDebug
 #   → androidApp/build/outputs/apk/debug/androidApp-debug.apk
 
+# Android release App Bundle (R8 minify + resource shrinking)
+./gradlew :androidApp:bundleRelease
+#   → androidApp/build/outputs/bundle/release/androidApp-release.aab
+
 # iOS — on macOS only (see iosApp/README.md)
 cd iosApp && xcodegen generate && open iosApp.xcodeproj
 ```
+
+## Android release build
+
+The `release` build type is **release-config-ready** (R8 minify + resource
+shrinking, AAB output, signing-from-properties). It is **not publishable yet** —
+see [`docs/PLAY_RELEASE.md`](docs/PLAY_RELEASE.md) for the honest blocker list
+(the three 🔒 reviews, real signing key, device QA, model licensing).
+
+**Signing.** Release signing reads a gitignored `keystore.properties` at the repo
+root. Copy the template and drop in your key:
+
+```bash
+cp keystore.properties.example keystore.properties   # then edit it
+# keystore.properties, *.jks, *.keystore are gitignored — never committed.
+```
+
+If `keystore.properties` is absent (CI / this sandbox), the release build falls
+back to **debug signing** so it still builds — that AAB is **not uploadable** to
+Play. R8 keep-rules for the native/reflective libs (ONNX, MediaPipe, Ktor/OkHttp,
+kotlinx-serialization, JNI) live in `androidApp/proguard-rules.pro`; re-verify
+them with a device smoke test after any dependency bump.
+
+**No model weights in the AAB.** The on-device LLM (~0.5–2 GB) and embedding model
+are provisioned at runtime (download-on-first-run / sideload), never bundled —
+the release AAB is ~54 MB and contains only code + native runtime libs.
 
 ## What is verified vs what needs your machine
 

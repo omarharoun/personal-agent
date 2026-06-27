@@ -18,6 +18,13 @@ captures/
 *.dex
 release/
 
+# --- Android release signing (NEVER commit) ---
+# The release keystore + its passwords stay on the developer's machine only.
+keystore.properties
+*.jks
+*.keystore
+*.p12
+
 # --- Kotlin/Native + KMP ---
 *.klib
 kotlin-js-store/
