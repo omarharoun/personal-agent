@@ -1,5 +1,11 @@
 package com.personalagent.shared.conversation
 
+import com.personalagent.shared.cloud.CloudClient
+import com.personalagent.shared.cloud.EscalationPolicy
+import com.personalagent.shared.cloud.LocalOnlyEscalationPolicy
+import com.personalagent.shared.cloud.PassthroughPayloadPrep
+import com.personalagent.shared.cloud.PayloadPrep
+import com.personalagent.shared.cloud.UnavailableCloudClient
 import com.personalagent.shared.memory.MemoryService
 import com.personalagent.shared.model.MemoryEntry
 import com.personalagent.shared.model.MemoryKind
@@ -15,10 +21,17 @@ import kotlinx.coroutines.flow.flow
  *  3. **generate** — call the local [OnDeviceLlm].
  *  4. **record** — write the turn back into memory so it informs future turns.
  *
- * Step 3 is **LOCAL-ONLY**: every turn is answered on-device. Cloud escalation is
- * Step 4 — the decision point exists here ([shouldEscalate]) but is a no-op stub
- * that always returns false, so this class needs no network and is fully unit-
- * testable with a [FakeOnDeviceLlm] and the real [MemoryService].
+ * Step 4 adds **cloud escalation**: the decision point ([shouldEscalate]) now
+ * consults an injected [EscalationPolicy]. When it says LOCAL (the default), the
+ * turn is answered on-device exactly as in Step 3. When it says ESCALATE, the turn
+ * is anonymized ([PayloadPrep.prepare]), sent to a [CloudClient], and the answer
+ * rehydrated locally ([PayloadPrep.rehydrate]) before being recorded + returned.
+ *
+ * Safe defaults keep this class local-only and network-free: a
+ * [LocalOnlyEscalationPolicy] (never escalates), a [PassthroughPayloadPrep] (no-op
+ * prep, for wiring only), and an [UnavailableCloudClient] (throws if ever reached).
+ * So with defaults it stays fully unit-testable with a [FakeOnDeviceLlm] and the
+ * real [MemoryService], with no network.
  *
  * 🤝 SHARED CONTRACT — constructor shape `(llm, memory)` is fixed. The remaining
  * parameters are appended with defaults so production can call
@@ -28,7 +41,11 @@ import kotlinx.coroutines.flow.flow
  * @param memory the Step-2 long-term memory engine (retrieval + recording).
  * @param promptBuilder assembles the grounded prompt (overridable for tests/persona).
  * @param contextTopK how many memories to retrieve and fold into the prompt.
- * @param options decoding options passed to the model on every turn.
+ * @param options decoding options passed to the model (and cloud) on every turn.
+ * @param escalationPolicy decides local-vs-cloud per turn (default: never escalate).
+ * @param payloadPrep anonymizes before escalating + rehydrates the answer
+ *   (default: passthrough — NOT the production anonymizer).
+ * @param cloudClient remote model used on escalation (default: unavailable/throws).
  */
 class ConversationService(
     private val llm: OnDeviceLlm,
@@ -36,6 +53,9 @@ class ConversationService(
     private val promptBuilder: PromptBuilder = PromptBuilder(),
     private val contextTopK: Int = MemoryService.DEFAULT_TOP_K,
     private val options: GenOptions = GenOptions(),
+    private val escalationPolicy: EscalationPolicy = LocalOnlyEscalationPolicy,
+    private val payloadPrep: PayloadPrep = PassthroughPayloadPrep(),
+    private val cloudClient: CloudClient = UnavailableCloudClient,
 ) {
 
     /**
@@ -51,13 +71,12 @@ class ConversationService(
 
         val context = retrieve(turn)
 
-        // Step 4 hook — local-only for now; see [shouldEscalate].
-        check(!shouldEscalate(turn, context)) {
-            "Cloud escalation is not implemented until Step 4"
+        val reply = if (shouldEscalate(turn, context)) {
+            escalate(turn, context)
+        } else {
+            val prompt = promptBuilder.build(turn, context)
+            llm.generate(prompt, options)
         }
-
-        val prompt = promptBuilder.build(turn, context)
-        val reply = llm.generate(prompt, options)
 
         record(turn, reply)
         return reply
@@ -76,8 +95,14 @@ class ConversationService(
         if (turn.isEmpty()) return@flow
 
         val context = retrieve(turn)
-        check(!shouldEscalate(turn, context)) {
-            "Cloud escalation is not implemented until Step 4"
+
+        if (shouldEscalate(turn, context)) {
+            // Cloud completion is non-streaming; emit the rehydrated answer as a
+            // single chunk so the stream contract still holds (concatenation == reply).
+            val answer = escalate(turn, context)
+            if (answer.isNotEmpty()) emit(answer)
+            record(turn, answer)
+            return@flow
         }
 
         val prompt = promptBuilder.build(turn, context)
@@ -92,17 +117,25 @@ class ConversationService(
     }
 
     /**
-     * STUB — Step 4 escalation decision point. Always returns `false` in Step 3,
-     * so every turn is answered locally.
-     *
-     * TODO(Step 4): replace this stub with the real local-vs-cloud routing —
-     * e.g. escalate when the local model is unavailable ([OnDeviceLlm.isAvailable]
-     * is false), when the request is out of the on-device model's depth, or on an
-     * explicit user opt-in. Until then this is intentionally a no-op so Step 3
-     * stays local-only and network-free.
+     * Step 4 escalation decision point — now delegates to the injected
+     * [escalationPolicy]. With the default [LocalOnlyEscalationPolicy] this is
+     * always `false`, preserving Step 3's local-only behaviour. The policy sees the
+     * turn plus the retrieved context as plain strings (it must not need anything
+     * off-device to decide).
      */
-    @Suppress("UNUSED_PARAMETER")
-    fun shouldEscalate(userText: String, context: List<MemoryEntry>): Boolean = false
+    fun shouldEscalate(userText: String, context: List<MemoryEntry>): Boolean =
+        escalationPolicy.shouldEscalate(userText, context.map { it.content })
+
+    /**
+     * Escalate one turn off-device: **anonymize → cloud → rehydrate**, strictly in
+     * that order. The [CloudClient] only ever receives [PreparedPayload.anonymizedText]
+     * — never raw user text and never the on-device [RehydrationMap].
+     */
+    private suspend fun escalate(turn: String, context: List<MemoryEntry>): String {
+        val prepared = payloadPrep.prepare(turn, context.map { it.content })
+        val cloudAnswer = cloudClient.complete(prepared.anonymizedText, options)
+        return payloadPrep.rehydrate(cloudAnswer, prepared.mapping)
+    }
 
     private suspend fun retrieve(turn: String): List<MemoryEntry> =
         memory.retrieveContext(turn, contextTopK)
