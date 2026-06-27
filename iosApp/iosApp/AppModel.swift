@@ -38,6 +38,15 @@ final class AppModel: ObservableObject {
     /// corner — see `IosLlmAdapter`).
     private let llm: OnDeviceLlm
 
+    /// Step-4 orchestrator: retrieve → build → generate locally, escalating to the
+    /// cloud only when the policy says so AND a provider is configured. Cloud is
+    /// OFF here (`cloudConfig: nil`), so escalation prep (minimize + anonymize via
+    /// `DefaultPayloadPrep`) is wired but nothing leaves the device.
+    ///
+    /// To enable cloud escalation, build a zero-retention `CloudConfig` (base URL +
+    /// model + API key supplied at runtime, never hardcoded) and pass it below.
+    private let conversationService: ConversationService
+
     /// Exposed to the UI so it can show whether the local model is ready.
     @Published var llmAvailable: Bool = false
 
@@ -49,8 +58,25 @@ final class AppModel: ObservableObject {
         )
         self.embedder = IosFactories.shared.createEmbedder(native: IosEmbedder())
         self.llm = IosFactories.shared.createOnDeviceLlm(native: IosOnDeviceLlm())
+        self.conversationService = IosFactories.shared.createConversationService(
+            llm: llm,
+            store: store,
+            embedder: embedder,
+            cloudConfig: nil   // cloud escalation OFF until a zero-retention provider is configured
+        )
         self.clock = IosFactories.shared.systemClock()
         self.llmAvailable = llm.isAvailable
+    }
+
+    /// Answer one turn through the shared Step-4 orchestrator (memory-grounded,
+    /// privacy-preserving escalation). Returns the full reply.
+    func respond(to userText: String) async -> String? {
+        do {
+            return try await conversationService.respond(userText: userText)
+        } catch {
+            message = "Failed to respond: \(error.localizedDescription)"
+            return nil
+        }
     }
 
     /// One-shot prompt → full completion, fully on-device. Returns nil and sets

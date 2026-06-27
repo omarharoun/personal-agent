@@ -21,36 +21,60 @@ package com.personalagent.shared.cloud
  */
 class RehydrationMap {
     // The only place plaintext private values live. Never widened to public.
-    private val map = LinkedHashMap<String, String>()
+    // Insertion-ordered so rehydration is deterministic and debuggable on-device.
+    private val tokenToReal = LinkedHashMap<String, String>()
+    // Reverse index so the anonymizer can reuse one token per real entity.
+    private val realToToken = HashMap<String, String>()
 
     /** Record that [token] (which appears in the anonymized text) stands for [realValue]. */
     fun put(token: String, realValue: String): RehydrationMap {
-        map[token] = realValue
+        record(token, realValue)
         return this
     }
 
     /** The real value previously stored for [token], or null if none. */
-    fun lookup(token: String): String? = map[token]
+    fun lookup(token: String): String? = tokenToReal[token]
 
     /** How many token→value pairs are held. (Count only — never the values.) */
-    val size: Int get() = map.size
+    val size: Int get() = tokenToReal.size
 
     /** True when nothing was stripped (e.g. the passthrough prep). */
-    fun isEmpty(): Boolean = map.isEmpty()
+    fun isEmpty(): Boolean = tokenToReal.isEmpty()
+
+    /**
+     * Record a token→real-value pair (and its reverse). `internal` so only the
+     * in-module anonymizer ([DefaultPayloadPrep]) writes entries; off-device
+     * transport code in other modules cannot.
+     */
+    internal fun record(token: String, real: String) {
+        tokenToReal[token] = real
+        realToToken[real] = token
+    }
+
+    /** Existing token for an already-seen real value, so the same entity reuses it. */
+    internal fun tokenForReal(real: String): String? = realToToken[real]
+
+    /** The real value previously stored for [token], or null. (Module-internal.) */
+    internal fun realForToken(token: String): String? = tokenToReal[token]
+
+    /** Tokens longest-first, so `<PERSON_1>` never partially shadows `<PERSON_11>`. */
+    internal fun tokensLongestFirst(): List<String> =
+        tokenToReal.keys.sortedByDescending { it.length }
 
     /**
      * Rehydrate [text] by replacing every stripped token with its real value.
      * `internal` so rehydration stays on-device and inside this module — callers
      * (e.g. [PayloadPrep.rehydrate]) never read the plaintext values directly.
+     * Longest-token-first so `<PERSON_1>` can't partially shadow `<PERSON_11>`.
      */
     internal fun rehydrate(text: String): String {
         var out = text
-        for ((token, real) in map) out = out.replace(token, real)
+        for (token in tokensLongestFirst()) out = out.replace(token, tokenToReal.getValue(token))
         return out
     }
 
     /** Redacted — never leaks the private values it holds. */
-    override fun toString(): String = "RehydrationMap(size=${map.size}, contents=REDACTED)"
+    override fun toString(): String = "RehydrationMap(size=$size, contents=REDACTED)"
 }
 
 /**
