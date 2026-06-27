@@ -1,7 +1,9 @@
 package com.personalagent.android
 
 import android.content.Context
+import com.personalagent.android.embedding.EmbedderFactory
 import com.personalagent.android.notification.AndroidReminderScheduler
+import com.personalagent.shared.memory.Embedder
 import com.personalagent.shared.reminder.ReminderService
 import com.personalagent.shared.store.AndroidKeyValueStorage
 import com.personalagent.shared.store.LocalStore
@@ -27,4 +29,15 @@ class AppContainer(context: Context) {
             scheduler = AndroidReminderScheduler(appContext),
             clock = SystemClock,
         )
+
+    /**
+     * On-device, offline text embedder (Step 2 memory layer). Created lazily so
+     * the (native) ONNX runtime only spins up if something actually embeds.
+     * Requires the model asset to be installed — see [EmbedderFactory.isModelInstalled].
+     */
+    val embedder: Embedder by lazy { EmbedderFactory.create(appContext) }
+
+    /** Whether the on-device embedding model asset is present in this build. */
+    val isEmbeddingModelInstalled: Boolean
+        get() = EmbedderFactory.isModelInstalled(appContext)
 }
