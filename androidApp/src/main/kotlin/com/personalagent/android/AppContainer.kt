@@ -2,7 +2,9 @@ package com.personalagent.android
 
 import android.content.Context
 import com.personalagent.android.embedding.EmbedderFactory
+import com.personalagent.android.llm.LlmModelProvisioning
 import com.personalagent.android.notification.AndroidReminderScheduler
+import com.personalagent.shared.llm.OnDeviceLlm
 import com.personalagent.shared.memory.Embedder
 import com.personalagent.shared.reminder.ReminderService
 import com.personalagent.shared.store.AndroidKeyValueStorage
@@ -40,4 +42,16 @@ class AppContainer(context: Context) {
     /** Whether the on-device embedding model asset is present in this build. */
     val isEmbeddingModelInstalled: Boolean
         get() = EmbedderFactory.isModelInstalled(appContext)
+
+    /**
+     * On-device, offline small LLM (Step 3). Created lazily so the (native)
+     * MediaPipe runtime only spins up if something actually generates. Requires
+     * the `.task` model to be provisioned on the device — see
+     * [LlmModelProvisioning] and [isLlmModelInstalled].
+     */
+    val llm: OnDeviceLlm by lazy { LlmModelProvisioning.create(appContext) }
+
+    /** Whether the on-device LLM model file is present on this device. */
+    val isLlmModelInstalled: Boolean
+        get() = LlmModelProvisioning.isModelInstalled(appContext)
 }

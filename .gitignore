@@ -47,6 +47,14 @@ Pods/
 *.onnx
 *.tflite
 
+# --- On-device LLM models (Step 3) ---
+# Small LLM weights (.task / .bin / .litertlm, ~0.5–2 GB) are pushed to the
+# device, never committed and never packaged in the APK. See README "On-device
+# LLM" and LlmModelProvisioning.
+*.task
+*.litertlm
+androidApp/src/main/assets/models/llm/
+
 # --- macOS / misc ---
 .DS_Store
 *.log
