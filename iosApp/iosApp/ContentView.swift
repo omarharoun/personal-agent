@@ -18,6 +18,9 @@ struct ContentView: View {
                     .tabItem { Label("Reminders", systemImage: "bell") }
                 PlanView()
                     .tabItem { Label("Plan", systemImage: "checklist") }
+                // 🔒 Step 7 crisis-safety surface (consent-first; no autonomy).
+                TrustedContactsView()
+                    .tabItem { Label("Support", systemImage: "heart.circle") }
             }
         }
     }

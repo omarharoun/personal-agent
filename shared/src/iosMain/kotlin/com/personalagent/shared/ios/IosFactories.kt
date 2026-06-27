@@ -20,6 +20,12 @@ import com.personalagent.shared.memory.IosNativeEmbedder
 import com.personalagent.shared.memory.MemoryService
 import com.personalagent.shared.reminder.ReminderScheduler
 import com.personalagent.shared.reminder.ReminderService
+import com.personalagent.shared.safety.CrisisRecognizer
+import com.personalagent.shared.safety.CrisisResourceProvider
+import com.personalagent.shared.safety.CrisisResponder
+import com.personalagent.shared.safety.DefaultCrisisResourceProvider
+import com.personalagent.shared.safety.KeywordCrisisRecognizer
+import com.personalagent.shared.safety.TrustedContactsStore
 import com.personalagent.shared.crypto.EncryptedKeyValueStorage
 import com.personalagent.shared.store.IosKeyValueStorage
 import com.personalagent.shared.store.LocalStore
@@ -138,4 +144,43 @@ object IosFactories {
     )
 
     fun systemClock(): Clock = SystemClock
+
+    // 🔒 CRISIS-CRITICAL (Step 7) — consent-first only; autonomous action disabled; NOT-FOR-REAL-USERS until human + crisis-expert review.
+    //
+    // Step-7 crisis-safety seams for iOS. These mirror the rest of this object:
+    // SwiftUI never constructs Kotlin objects with default args, so it goes
+    // through these factories.
+    //
+    // The shared safety contract (CrisisRecognizer / CrisisResource /
+    // CrisisResponse / TrustedContact) is owned by the `feat/step7-shared`
+    // sibling; reconcile at merge (see com.personalagent.shared.safety).
+
+    /**
+     * Conservative, on-device, classification-ONLY recognizer (no autonomous
+     * action). ⚠️ Placeholder, not a validated classifier — see
+     * [KeywordCrisisRecognizer].
+     */
+    fun createCrisisRecognizer(): CrisisRecognizer = KeywordCrisisRecognizer()
+
+    /** Single, reviewed source of crisis resources the support view lists from. */
+    fun createCrisisResourceProvider(): CrisisResourceProvider = DefaultCrisisResourceProvider()
+
+    /**
+     * 🔒 Builds the supportive, consent-first response from a [CrisisAssessment].
+     * Contacts NO ONE — there is no autonomous path. Provided as a factory so
+     * SwiftUI doesn't construct Kotlin objects with default args.
+     */
+    fun createCrisisResponder(): CrisisResponder =
+        CrisisResponder(createCrisisResourceProvider())
+
+    /**
+     * 🔒 The user's hand-curated trusted contacts, encrypted at rest with the
+     * SAME [crypto] (Keychain + Secure Enclave + AES-GCM) as every other entity.
+     * Every entry is added explicitly by the user in the setup view — never
+     * inferred. Stored in its own [IosKeyValueStorage] suite.
+     */
+    fun createTrustedContactsStore(crypto: SecretKeyProvider): TrustedContactsStore =
+        TrustedContactsStore(
+            EncryptedKeyValueStorage(IosKeyValueStorage("trusted_contacts"), crypto),
+        )
 }

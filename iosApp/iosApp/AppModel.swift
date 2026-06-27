@@ -42,6 +42,25 @@ final class AppModel: ObservableObject {
     /// Exposed to the UI so it can show whether the local model is ready.
     @Published var llmAvailable: Bool = false
 
+    // MARK: 🔒 Step 7 crisis-safety (consent-first; autonomous action disabled)
+    //
+    // The recognizer classifies ONLY (no autonomous outreach). The support view
+    // is surfaced via `distress` after an EXPLICIT user action (a self check-in),
+    // never by silently scanning the user. Trusted contacts are hand-added by the
+    // user and stored encrypted at rest like everything else.
+    private var crisisRecognizer: CrisisRecognizer!
+    private var resourceProvider: CrisisResourceProvider!
+    private var crisisResponder: CrisisResponder!
+    private var trustedContactsStore: TrustedContactsStore!
+
+    /// The user's hand-curated trusted contacts (added explicitly, with consent).
+    @Published var trustedContacts: [TrustedContact] = []
+
+    /// Drives the support sheet. Non-nil only after an explicit check-in that the
+    /// recognizer flagged as POSSIBLE_DISTRESS. An Identifiable wrapper because a
+    /// Kotlin `CrisisResponse` can't conform to `Identifiable` for `.sheet(item:)`.
+    @Published var distress: DistressPresentation?
+
     init() {
         let ready = keyStore.isSetUp
         self.needsSetup = !ready
@@ -95,6 +114,13 @@ final class AppModel: ObservableObject {
         )
         self.clock = IosFactories.shared.systemClock()
         self.llmAvailable = llm.isAvailable
+
+        // 🔒 Step 7 crisis-safety services. The trusted-contacts store reuses the
+        // SAME encryption key (`crypto`) as the main store.
+        self.crisisRecognizer = IosFactories.shared.createCrisisRecognizer()
+        self.resourceProvider = IosFactories.shared.createCrisisResourceProvider()
+        self.crisisResponder = IosFactories.shared.createCrisisResponder()
+        self.trustedContactsStore = IosFactories.shared.createTrustedContactsStore(crypto: crypto)
     }
 
     /// Answer one turn through the shared Step-4 orchestrator (memory-grounded,
@@ -133,9 +159,76 @@ final class AppModel: ObservableObject {
             self.notes = n.sorted { $0.updatedAt > $1.updatedAt }
             self.reminders = r.sorted { $0.triggerAtMillis < $1.triggerAtMillis }
             self.planItems = p
+            self.trustedContacts = try await trustedContactsStore.all()
         } catch {
             self.message = "Failed to load: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - 🔒 Step 7 crisis-safety (consent-first; autonomous action disabled)
+
+    /// The crisis resources to display, sourced from the SHARED provider.
+    var crisisResources: [CrisisResource] {
+        guard isReady else { return [] }
+        return resourceProvider.resourcesFor(regionHint: nil)
+    }
+
+    /// EXPLICIT, user-initiated self check-in. The user taps to share how they're
+    /// feeling; only then do we classify. If the (conservative, on-device)
+    /// recognizer flags POSSIBLE_DISTRESS, we surface the calm support view. This
+    /// is the ONLY thing that happens — no message is sent, no one is contacted,
+    /// nothing is logged or escalated.
+    func checkIn(_ text: String) {
+        guard isReady, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // canonical: assess(userText:) -> CrisisAssessment(level, rationale)
+        let assessment = crisisRecognizer.assess(userText: text)
+        if assessment.level == CrisisLevel.possibleDistress {
+            // respond(...) is nil for NONE; non-nil here. Reviewed copy + resources
+            // come from the shared CrisisResponder — nothing is sent or contacted.
+            if let response = crisisResponder.respond(assessment: assessment, regionHint: nil) {
+                distress = DistressPresentation(response: response)
+            }
+        } else {
+            message = "Thanks for checking in. Support resources are always here if you want them."
+        }
+    }
+
+    /// Open the support view directly (e.g. from a "Support resources" button),
+    /// without any classification — resources are always available on request.
+    func openSupportResources() {
+        guard isReady else { return }
+        let assessment = CrisisAssessment(
+            level: CrisisLevel.possibleDistress,
+            rationale: "User explicitly opened support resources."
+        )
+        if let response = crisisResponder.respond(assessment: assessment, regionHint: nil) {
+            distress = DistressPresentation(response: response)
+        }
+    }
+
+    /// Add a trusted contact. Calling this IS the user's up-front, explicit
+    /// consent — it only happens when they fill in the setup form and tap Add.
+    func addTrustedContact(name: String, phone: String, relation: String) async {
+        guard isReady, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let phoneOrNil = phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : phone
+        let now = clock.nowMillis()
+        // canonical: add(contact:) takes a fully-formed TrustedContact; consentedAt
+        // is set now because filling the form + tapping Add IS the consent.
+        let contact = TrustedContact(
+            id: Ids.shared.next(nowMillis: now),
+            name: name,
+            relationship: relation,
+            phone: phoneOrNil,
+            consentedAt: now
+        )
+        try? await trustedContactsStore.add(contact: contact)
+        await refresh()
+    }
+
+    func removeTrustedContact(_ id: String) async {
+        guard isReady else { return }
+        try? await trustedContactsStore.remove(id: id)
+        await refresh()
     }
 
     // MARK: Notes
