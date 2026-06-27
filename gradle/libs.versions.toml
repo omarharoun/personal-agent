@@ -19,6 +19,11 @@ onnxruntime = "1.20.0"
 # On-device LLM — MediaPipe LLM Inference API for a small local model (Step 3).
 mediapipeGenai = "0.10.24"
 
+# Cloud transport — Ktor multiplatform HTTP client for the Step 4 escalation
+# path (zero-retention HTTPS calls to a frontier model). Engine is selected per
+# platform: OkHttp on Android, Darwin on iOS. MockEngine drives the tests.
+ktor = "3.5.1"
+
 # Android SDK levels
 compileSdk = "36"
 minSdk = "26"
@@ -38,6 +43,16 @@ androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version
 
 onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android", version.ref = "onnxruntime" }
 mediapipe-tasks-genai = { module = "com.google.mediapipe:tasks-genai", version.ref = "mediapipeGenai" }
+
+# Ktor multiplatform HTTP client (Step 4 cloud transport).
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
+# Platform engines: OkHttp on Android, Darwin (NSURLSession) on iOS.
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
+# Test-only in-memory engine — lets unit tests exercise the client with no network.
+ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-test-junit" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidx-test-runner" }
