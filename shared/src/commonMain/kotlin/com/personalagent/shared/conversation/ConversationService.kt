@@ -97,7 +97,7 @@ class ConversationService(
         // short-circuits escalation; only a cache MISS may go to the cloud.
         val cached = semanticCache.lookup(turn)
 
-        val reply = if (cached.isEmpty() && shouldEscalate(turn, context)) {
+        val reply = if (cached.isEmpty() && routeToCloud(turn, context)) {
             cloudUsageRecorder.recordCloud()
             escalate(turn, context)
         } else {
@@ -129,7 +129,7 @@ class ConversationService(
         // keeps the turn local (grounded), so only a cache miss can escalate.
         val cached = semanticCache.lookup(turn)
 
-        if (cached.isEmpty() && shouldEscalate(turn, context)) {
+        if (cached.isEmpty() && routeToCloud(turn, context)) {
             cloudUsageRecorder.recordCloud()
             // Cloud completion is non-streaming; emit the rehydrated answer as a
             // single chunk so the stream contract still holds (concatenation == reply).
@@ -161,6 +161,23 @@ class ConversationService(
      */
     fun shouldEscalate(userText: String, context: List<MemoryEntry>): Boolean =
         escalationPolicy.shouldEscalate(userText, context.map { it.content })
+
+    /**
+     * The actual routing gate: send this turn to the cloud when EITHER the
+     * escalation policy asks for it, OR there is **no usable on-device model**.
+     *
+     * The second clause is the fix for the device bug where the app never
+     * answered: a user who set a cloud API key but installed no local `.task`
+     * model would, for a normal short question, fail [shouldEscalate] (the
+     * heuristic only fires on "think hard"/long-complex turns) and get routed to
+     * `llm.generate` on an absent model — which throws/hangs. By routing to the
+     * cloud whenever the local model is unavailable, a key-holder gets answered
+     * for EVERY question. If the cloud is ALSO unconfigured, [escalate] →
+     * [cloudClient.complete] throws a clear "no provider/key" error that the UI
+     * renders, rather than a silent stall.
+     */
+    private fun routeToCloud(userText: String, context: List<MemoryEntry>): Boolean =
+        shouldEscalate(userText, context) || !llm.isAvailable
 
     /**
      * Escalate one turn off-device: **anonymize → cloud → rehydrate**, strictly in

@@ -47,6 +47,9 @@ class CloudException(message: String, cause: Throwable? = null) : Exception(mess
  *   OpenAI-compatible chat-completions route most providers expose.
  * @param connectTimeoutMs TCP/TLS connect budget.
  * @param requestTimeoutMs whole-call budget; on expiry the call surfaces a clear error.
+ * @param socketTimeoutMs max gap between bytes once connected — catches a socket
+ *   that stalls mid-response on a flaky mobile-data link (the whole-call budget
+ *   alone is not always enough to break a half-open connection).
  * @param maxResponseChars guard against a runaway/oversized response body.
  */
 data class CloudConfig(
@@ -54,8 +57,11 @@ data class CloudConfig(
     val model: String,
     val apiKey: String,
     val chatPath: String = "/v1/chat/completions",
-    val connectTimeoutMs: Long = 10_000,
-    val requestTimeoutMs: Long = 30_000,
+    // Budgets tuned for mobile data: a slow-but-alive link still completes, but
+    // nothing can hang indefinitely — every expiry maps to a visible error.
+    val connectTimeoutMs: Long = 15_000,
+    val requestTimeoutMs: Long = 60_000,
+    val socketTimeoutMs: Long = 30_000,
     val maxResponseChars: Int = 256_000,
 )
 
@@ -112,6 +118,7 @@ class HttpCloudClient(
         install(HttpTimeout) {
             connectTimeoutMillis = config.connectTimeoutMs
             requestTimeoutMillis = config.requestTimeoutMs
+            socketTimeoutMillis = config.socketTimeoutMs
         }
         expectSuccess = false // we map status → CloudException ourselves
     }
@@ -215,8 +222,23 @@ class HttpCloudClient(
     /** Status-check + size-guard a response, returning its raw body text. */
     private suspend fun readBodyOrThrow(response: HttpResponse): String {
         if (!response.status.isSuccess()) {
-            // Surface status only; the provider error body may echo the prompt.
-            throw CloudException("cloud call failed with HTTP ${response.status.value}")
+            // Surface the status AND the provider's own error message. For the
+            // failures users actually hit — bad/expired key, wrong model id,
+            // rate limit, quota — Anthropic/OpenAI return a structured
+            // {"error":{"type","message"}} whose message is provider-side text
+            // ("invalid x-api-key", "model: … not found"), NOT an echo of the
+            // prompt. Without it the user only ever sees a bare number and can't
+            // tell a 401 (fix the key) from a 404 (fix the model). We parse only
+            // those two fields; if parsing fails we fall back to status alone.
+            val detail = runCatching {
+                val errBody = response.bodyAsText().take(2_000)
+                json.decodeFromString(ApiErrorEnvelope.serializer(), errBody).error
+            }.getOrNull()
+            val suffix = detail?.message?.takeIf { it.isNotBlank() }?.let { msg ->
+                val type = detail.type?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+                ": $msg$type"
+            } ?: ""
+            throw CloudException("API error ${response.status.value}$suffix")
         }
         val raw = response.bodyAsText()
         if (raw.length > config.maxResponseChars) {
@@ -308,4 +330,16 @@ private data class AnthropicResponse(
 private data class AnthropicContentBlock(
     val type: String? = null,
     val text: String? = null,
+)
+
+// --- Shared error envelope (Anthropic & OpenAI both use {"error":{type,message}}) ---
+@Serializable
+private data class ApiErrorEnvelope(
+    val error: ApiErrorDetail? = null,
+)
+
+@Serializable
+private data class ApiErrorDetail(
+    val type: String? = null,
+    val message: String? = null,
 )

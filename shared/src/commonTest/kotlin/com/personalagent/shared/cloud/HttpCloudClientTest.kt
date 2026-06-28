@@ -7,6 +7,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteReadChannel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
@@ -140,6 +141,57 @@ class HttpCloudClientTest {
             HttpCloudClient(cfg, engine).complete("hi", GenOptions())
         }
         assertContains(ex.message ?: "", "500")
+    }
+
+    @Test
+    fun surfaces_provider_error_message_on_401() = runTest {
+        // Device failure mode: bad/expired key. The user must see WHY (it's a
+        // 401 about the key), not a bare number or a silent stall.
+        val engine = MockEngine {
+            respond(
+                content = """{"error":{"type":"authentication_error","message":"invalid x-api-key"}}""",
+                status = HttpStatusCode.Unauthorized,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val ex = assertFailsWith<CloudException> {
+            HttpCloudClient(anthropicCfg, engine, provider = CloudProvider.ANTHROPIC)
+                .complete("hi", GenOptions())
+        }
+        assertContains(ex.message ?: "", "401")
+        assertContains(ex.message ?: "", "invalid x-api-key")
+    }
+
+    @Test
+    fun surfaces_provider_error_message_on_400_bad_model() = runTest {
+        // Device failure mode: a wrong/outdated model id 400/404s every call.
+        // The surfaced message must name the model problem, not just "400".
+        val engine = MockEngine {
+            respond(
+                content = """{"error":{"type":"invalid_request_error","message":"model: bogus-model does not exist"}}""",
+                status = HttpStatusCode.BadRequest,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val ex = assertFailsWith<CloudException> {
+            HttpCloudClient(cfg, engine).complete("hi", GenOptions())
+        }
+        assertContains(ex.message ?: "", "400")
+        assertContains(ex.message ?: "", "does not exist")
+    }
+
+    @Test
+    fun maps_timeout_to_cloud_exception() = runTest {
+        // Device failure mode: mobile-data connection stalls. The whole-call
+        // budget must fire and become a visible "timed out" error — never a hang.
+        val engine = MockEngine {
+            delay(60_000) // far beyond the 50ms request budget below
+            respond("too late", status = HttpStatusCode.OK)
+        }
+        val ex = assertFailsWith<CloudException> {
+            HttpCloudClient(cfg.copy(requestTimeoutMs = 50), engine).complete("hi", GenOptions())
+        }
+        assertContains(ex.message ?: "", "timed out")
     }
 
     @Test

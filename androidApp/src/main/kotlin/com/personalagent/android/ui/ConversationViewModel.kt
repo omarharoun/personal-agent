@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.personalagent.android.AppContainer
 import com.personalagent.shared.agent.AgentIntent
 import com.personalagent.shared.agent.IntentRouter
+import com.personalagent.shared.cloud.CloudException
+import com.personalagent.shared.cloud.CloudUnavailableException
 import com.personalagent.shared.conversation.ConversationService
 import com.personalagent.shared.util.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -105,15 +107,43 @@ class ConversationViewModel(
         }
     }
 
+    /**
+     * Generate an AI reply for [text] and append it — OR append a visible error
+     * that NAMES the failing stage. The cardinal rule (the device bug was a
+     * forever-spinner with no reply and no error): every send must resolve to a
+     * reply or a rendered message. We never swallow an exception to "" or leave
+     * the spinner up.
+     *
+     *  - [CloudUnavailableException] → no local model AND no API key configured.
+     *  - [CloudException] → the cloud was reached but failed: timeout, bad key
+     *    (API error 401), wrong model (404), rate limit (429), parse error. Its
+     *    message already names the cause (e.g. "API error 401: invalid x-api-key").
+     *  - any other Throwable → an on-device model error (e.g. inference failed).
+     */
     private fun ask(text: String) = viewModelScope.launch {
         _sending.value = true
         try {
-            val reply = runCatching { conversationService.respond(text) }.getOrDefault("")
-            if (reply.isBlank() || reply.trim().length < MIN_USEFUL_REPLY) {
-                append(Message.Role.ASSISTANT, MODEL_UNAVAILABLE_FALLBACK)
+            val reply = conversationService.respond(text)
+            if (reply.isBlank()) {
+                append(Message.Role.ASSISTANT, EMPTY_REPLY_FALLBACK)
             } else {
                 append(Message.Role.ASSISTANT, reply.trim())
             }
+        } catch (e: CloudUnavailableException) {
+            append(Message.Role.ASSISTANT, MODEL_UNAVAILABLE_FALLBACK)
+        } catch (e: CloudException) {
+            append(
+                Message.Role.ASSISTANT,
+                "I couldn't reach the cloud model: ${e.message ?: "unknown error"}. " +
+                    "Check your connection and your API key in Settings (the gear, top-right).",
+            )
+        } catch (e: Throwable) {
+            append(
+                Message.Role.ASSISTANT,
+                "Something went wrong generating a reply: " +
+                    "${e.message ?: e::class.simpleName ?: "unknown error"}. " +
+                    "If you don't have an on-device model, add an API key in Settings.",
+            )
         } finally {
             _sending.value = false
         }
@@ -129,12 +159,13 @@ class ConversationViewModel(
     }
 
     companion object {
-        private const val MIN_USEFUL_REPLY = 1
         private const val DEFAULT_REMINDER_DELAY_MILLIS = 60 * 60_000L // 1 hour
         const val MODEL_UNAVAILABLE_FALLBACK =
-            "I can't answer that yet — there's no AI model running on this device. " +
-                "Install one from Settings (the gear, top-right), or add an API key, and I'll be able to chat. " +
+            "I can't answer that yet — there's no AI model running on this device, and no API key is set. " +
+                "Install a model from Settings (the gear, top-right), or add an API key, and I'll be able to chat. " +
                 "Notes, reminders, and plans still work right now."
+        const val EMPTY_REPLY_FALLBACK =
+            "I didn't get any text back that time. Please try again."
     }
 
     /** Factory: builds the conversation VM from the container + the shared app VM. */

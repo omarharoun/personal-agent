@@ -98,14 +98,38 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Generate an AI reply and append it — OR append a VISIBLE error that names
+    /// the failing stage. The device bug was a silent stall (no reply, no error);
+    /// every send must resolve to a rendered message, never an empty spinner.
     private func ask(_ text: String) async {
         sending = true
         defer { sending = false }
-        let reply = await respond(to: text)
-        if let reply, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            appendMessage(.assistant, reply.trimmingCharacters(in: .whitespacesAndNewlines))
-        } else {
+        guard isReady else {
             appendMessage(.assistant, modelUnavailableFallback)
+            return
+        }
+        do {
+            let reply = try await conversationService.respond(userText: text)
+            let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                appendMessage(.assistant, "I didn't get any text back that time. Please try again.")
+            } else {
+                appendMessage(.assistant, trimmed)
+            }
+        } catch {
+            // KMP surfaces CloudUnavailableException / CloudException as NSError
+            // whose description carries our stage-named message ("No cloud
+            // provider/key is configured…", "API error 401: invalid x-api-key").
+            let desc = error.localizedDescription
+            if desc.localizedCaseInsensitiveContains("no cloud provider")
+                || desc.localizedCaseInsensitiveContains("not configured") {
+                appendMessage(.assistant, modelUnavailableFallback)
+            } else {
+                appendMessage(
+                    .assistant,
+                    "I couldn't reach the model: \(desc). "
+                        + "Check your connection and your API key in Settings.")
+            }
         }
     }
 

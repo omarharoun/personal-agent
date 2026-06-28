@@ -1,5 +1,7 @@
 package com.personalagent.shared.conversation
 
+import com.personalagent.shared.cloud.CloudUnavailableException
+import com.personalagent.shared.cloud.FakeCloudClient
 import com.personalagent.shared.memory.HashingEmbedder
 import com.personalagent.shared.memory.InMemoryVectorIndex
 import com.personalagent.shared.memory.MemoryService
@@ -10,6 +12,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -99,6 +102,57 @@ class ConversationServiceTest {
         val svc = ConversationService(FakeOnDeviceLlm(), mem)
         assertFalse(svc.shouldEscalate("anything at all", emptyList()))
         assertFalse(svc.shouldEscalate("please use the cloud", emptyList()))
+    }
+
+    @Test
+    fun no_local_model_but_cloud_configured_routes_a_normal_question_to_cloud() = runTest {
+        // THE DEVICE BUG: a user set an API key but installed no local model. A
+        // plain question does NOT trip the escalation heuristic, so before the fix
+        // it dead-ended at the absent local model (hang / silent fallback). Now an
+        // unavailable local model alone must route the turn to the cloud.
+        val mem = memory()
+        val cloud = FakeCloudClient(response = "answer from the cloud")
+        val svc = ConversationService(
+            llm = FakeOnDeviceLlm(isAvailable = false),
+            memory = mem,
+            cloudClient = cloud,
+        )
+
+        val out = svc.respond("what's the capital of France?")
+
+        assertEquals("answer from the cloud", out)
+        assertEquals(1, cloud.callCount, "a no-local-model turn must hit the cloud")
+    }
+
+    @Test
+    fun no_local_model_and_no_cloud_fails_loudly_not_silently() = runTest {
+        // With neither a local model NOR a cloud provider, the turn must throw a
+        // CLEAR error (which the UI renders as "no model + no key") — never a
+        // silent stall. Default cloudClient is UnavailableCloudClient.
+        val svc = ConversationService(
+            llm = FakeOnDeviceLlm(isAvailable = false),
+            memory = memory(),
+        )
+
+        assertFailsWith<CloudUnavailableException> {
+            svc.respond("hello?")
+        }
+    }
+
+    @Test
+    fun local_model_available_keeps_a_normal_question_on_device() = runTest {
+        // The inverse guard: when a local model IS present, a normal question
+        // stays on-device and does NOT spend a cloud call.
+        val mem = memory()
+        val cloud = FakeCloudClient(response = "should not be used")
+        val llm = FakeOnDeviceLlm(isAvailable = true, response = "local answer")
+        val svc = ConversationService(llm = llm, memory = mem, cloudClient = cloud)
+
+        val out = svc.respond("what's the capital of France?")
+
+        assertEquals("local answer", out)
+        assertEquals(0, cloud.callCount, "a normal turn with a local model must stay on-device")
+        assertEquals(1, llm.callCount)
     }
 
     @Test
