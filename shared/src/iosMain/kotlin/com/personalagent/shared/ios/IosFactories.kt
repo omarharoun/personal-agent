@@ -1,6 +1,8 @@
 package com.personalagent.shared.ios
 
+import com.personalagent.shared.cloud.CloudClient
 import com.personalagent.shared.cloud.CloudConfig
+import com.personalagent.shared.cloud.CloudKeyStore
 import com.personalagent.shared.cloud.DefaultPayloadPrep
 import com.personalagent.shared.cloud.HeuristicEscalationPolicy
 import com.personalagent.shared.cloud.HttpCloudClient
@@ -153,6 +155,45 @@ object IosFactories {
         payloadPrep = DefaultPayloadPrep(),
         cloudClient = cloudConfig?.let { HttpCloudClient(it) } ?: UnavailableCloudClient,
     )
+
+    /**
+     * 🔑 The bring-your-own-key cloud wallet (Stream 3) for iOS, encrypted at rest
+     * with the SAME [crypto] (Keychain + Secure Enclave + AES-GCM) as every other
+     * entity. Persists, per provider, the user's OWN developer API key + which
+     * provider is active. Stored in its own [IosKeyValueStorage] suite. Keys are
+     * never logged. `CloudSettingsView` reads/writes this.
+     */
+    fun createCloudKeyStore(crypto: SecretKeyProvider): CloudKeyStore =
+        CloudKeyStore(
+            EncryptedKeyValueStorage(IosKeyValueStorage("cloud_keys"), crypto),
+        )
+
+    /**
+     * Stream-3 variant of [createConversationService] that derives the cloud client
+     * from the user's BYO-key selection in [cloudKeyStore]. The cloud client is
+     * non-null only when the user has chosen an active provider AND set its key;
+     * otherwise escalation uses [UnavailableCloudClient] and nothing leaves the
+     * device. The key is read from the encrypted store at runtime — never logged.
+     *
+     * (Resolved once when the service is built; the Settings view notes that a
+     * newly-saved key applies after relaunch.)
+     */
+    fun createConversationService(
+        llm: OnDeviceLlm,
+        store: LocalStore,
+        embedder: Embedder,
+        crypto: SecretKeyProvider,
+        cloudKeyStore: CloudKeyStore,
+    ): ConversationService {
+        val cloudClient: CloudClient = cloudKeyStore.activeCloudClient() ?: UnavailableCloudClient
+        return ConversationService(
+            llm = llm,
+            memory = createMemoryService(store, embedder, crypto),
+            escalationPolicy = HeuristicEscalationPolicy(),
+            payloadPrep = DefaultPayloadPrep(),
+            cloudClient = cloudClient,
+        )
+    }
 
     fun systemClock(): Clock = SystemClock
 

@@ -81,6 +81,13 @@ data class CloudConfig(
 class HttpCloudClient(
     private val config: CloudConfig,
     engine: HttpClientEngine? = null,
+    /**
+     * Which provider's wire protocol to speak. Defaults to [CloudProvider.OPENAI]
+     * so existing OpenAI-shaped callers (and tests) are unchanged. Set
+     * [CloudProvider.ANTHROPIC] to speak the Claude Messages API instead
+     * (different endpoint, headers, request/response shape).
+     */
+    private val provider: CloudProvider = CloudProvider.OPENAI,
 ) : CloudClient {
 
     init {
@@ -112,9 +119,27 @@ class HttpCloudClient(
     private val client: HttpClient =
         if (engine != null) HttpClient(engine, configure) else HttpClient(configure)
 
-    private val endpoint: String = config.baseUrl.trimEnd('/') + "/" + config.chatPath.trimStart('/')
+    /**
+     * The POST target. OpenAI uses the configurable [CloudConfig.chatPath]
+     * (default `/v1/chat/completions`); Anthropic's Messages API is always
+     * `/v1/messages`, so the chatPath is ignored for that provider.
+     */
+    private val endpoint: String = run {
+        val base = config.baseUrl.trimEnd('/')
+        when (provider) {
+            CloudProvider.OPENAI -> base + "/" + config.chatPath.trimStart('/')
+            CloudProvider.ANTHROPIC -> "$base/v1/messages"
+        }
+    }
 
-    override suspend fun complete(prompt: String, options: GenOptions): String {
+    override suspend fun complete(prompt: String, options: GenOptions): String =
+        when (provider) {
+            CloudProvider.OPENAI -> completeOpenAi(prompt, options)
+            CloudProvider.ANTHROPIC -> completeAnthropic(prompt, options)
+        }
+
+    // --- OpenAI (chat-completions) ------------------------------------------
+    private suspend fun completeOpenAi(prompt: String, options: GenOptions): String {
         val request = ChatRequest(
             model = config.model,
             messages = listOf(ChatMessage(role = "user", content = prompt)),
@@ -123,40 +148,81 @@ class HttpCloudClient(
             stop = options.stop.ifEmpty { null },
         )
 
-        val response: HttpResponse = try {
-            client.post(endpoint) {
-                // Minimum headers only: bearer auth + JSON content type.
-                headers { append(HttpHeaders.Authorization, "Bearer ${config.apiKey}") }
-                contentType(ContentType.Application.Json)
-                setBody(request)
-            }
-        } catch (e: HttpRequestTimeoutException) {
-            throw CloudException("cloud call timed out after ${config.requestTimeoutMs}ms", e)
-        } catch (e: CloudException) {
-            throw e
-        } catch (e: Throwable) {
-            // Transport/TLS/DNS failure — note the failure, never the payload.
-            throw CloudException("cloud transport failure: ${e::class.simpleName}", e)
+        val response = postOrThrow {
+            // Minimum headers only: bearer auth + JSON content type.
+            headers { append(HttpHeaders.Authorization, "Bearer ${config.apiKey}") }
+            contentType(ContentType.Application.Json)
+            setBody(request)
         }
 
-        if (!response.status.isSuccess()) {
-            // Surface status only; the provider error body may echo the prompt.
-            throw CloudException("cloud call failed with HTTP ${response.status.value}")
-        }
-
-        val raw = response.bodyAsText()
-        if (raw.length > config.maxResponseChars) {
-            throw CloudException("cloud response too large (${raw.length} > ${config.maxResponseChars} chars)")
-        }
-
+        val raw = readBodyOrThrow(response)
         val parsed = try {
             json.decodeFromString(ChatResponse.serializer(), raw)
         } catch (e: Throwable) {
             throw CloudException("cloud response was not valid JSON", e)
         }
-
         return parsed.choices.firstOrNull()?.message?.content
             ?: throw CloudException("cloud response contained no completion")
+    }
+
+    // --- Anthropic (Messages API) -------------------------------------------
+    // POST {baseUrl}/v1/messages with x-api-key + anthropic-version headers;
+    // body {model, max_tokens, messages:[{role:"user", content:<prompt>}]};
+    // the answer is the text of the first content block (content[0].text).
+    private suspend fun completeAnthropic(prompt: String, options: GenOptions): String {
+        val request = AnthropicRequest(
+            model = config.model,
+            // Anthropic REQUIRES max_tokens; reuse the GenOptions cap.
+            maxTokens = options.maxTokens,
+            messages = listOf(AnthropicMessage(role = "user", content = prompt)),
+            temperature = options.temperature,
+            stopSequences = options.stop.ifEmpty { null },
+        )
+
+        val response = postOrThrow {
+            headers {
+                append(ANTHROPIC_API_KEY_HEADER, config.apiKey)
+                append(ANTHROPIC_VERSION_HEADER, ANTHROPIC_VERSION)
+            }
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+
+        val raw = readBodyOrThrow(response)
+        val parsed = try {
+            json.decodeFromString(AnthropicResponse.serializer(), raw)
+        } catch (e: Throwable) {
+            throw CloudException("cloud response was not valid JSON", e)
+        }
+        return parsed.content.firstOrNull { it.text != null }?.text
+            ?: throw CloudException("cloud response contained no completion")
+    }
+
+    /** POST [endpoint] with [block], mapping every failure to [CloudException]. */
+    private suspend inline fun postOrThrow(
+        crossinline block: io.ktor.client.request.HttpRequestBuilder.() -> Unit,
+    ): HttpResponse = try {
+        client.post(endpoint) { block() }
+    } catch (e: HttpRequestTimeoutException) {
+        throw CloudException("cloud call timed out after ${config.requestTimeoutMs}ms", e)
+    } catch (e: CloudException) {
+        throw e
+    } catch (e: Throwable) {
+        // Transport/TLS/DNS failure — note the failure, never the payload.
+        throw CloudException("cloud transport failure: ${e::class.simpleName}", e)
+    }
+
+    /** Status-check + size-guard a response, returning its raw body text. */
+    private suspend fun readBodyOrThrow(response: HttpResponse): String {
+        if (!response.status.isSuccess()) {
+            // Surface status only; the provider error body may echo the prompt.
+            throw CloudException("cloud call failed with HTTP ${response.status.value}")
+        }
+        val raw = response.bodyAsText()
+        if (raw.length > config.maxResponseChars) {
+            throw CloudException("cloud response too large (${raw.length} > ${config.maxResponseChars} chars)")
+        }
+        return raw
     }
 
     /** Release the underlying engine. Safe to call once the client is done. */
@@ -171,6 +237,19 @@ class HttpCloudClient(
  * constructor directly with a `MockEngine`.
  */
 fun httpCloudClient(config: CloudConfig): CloudClient = HttpCloudClient(config)
+
+/**
+ * Provider-aware construction helper: build the real cloud client for [provider]
+ * for the current platform (Ktor selects the compiled-in engine). Tests pass a
+ * `MockEngine` to the [HttpCloudClient] constructor directly.
+ */
+fun httpCloudClient(config: CloudConfig, provider: CloudProvider): CloudClient =
+    HttpCloudClient(config, provider = provider)
+
+// --- Anthropic Messages API headers ------------------------------------------
+private const val ANTHROPIC_API_KEY_HEADER = "x-api-key"
+private const val ANTHROPIC_VERSION_HEADER = "anthropic-version"
+private const val ANTHROPIC_VERSION = "2023-06-01"
 
 // --- Wire models (OpenAI-compatible chat-completions shape) -------------------
 // Kept private to this file: the transport's request/response contract is an
@@ -199,4 +278,34 @@ private data class ChatResponse(
 @Serializable
 private data class ChatChoice(
     val message: ChatMessage? = null,
+)
+
+// --- Wire models (Anthropic Messages API shape) ------------------------------
+// Request: {model, max_tokens (REQUIRED), messages:[{role,content}], ...};
+// response: {content:[{type:"text", text:"..."}], ...}.
+
+@Serializable
+private data class AnthropicRequest(
+    val model: String,
+    @SerialName("max_tokens") val maxTokens: Int,
+    val messages: List<AnthropicMessage>,
+    val temperature: Float,
+    @SerialName("stop_sequences") val stopSequences: List<String>? = null,
+)
+
+@Serializable
+private data class AnthropicMessage(
+    val role: String,
+    val content: String,
+)
+
+@Serializable
+private data class AnthropicResponse(
+    val content: List<AnthropicContentBlock> = emptyList(),
+)
+
+@Serializable
+private data class AnthropicContentBlock(
+    val type: String? = null,
+    val text: String? = null,
 )

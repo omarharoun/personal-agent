@@ -158,6 +158,59 @@ class HttpCloudClientTest {
         assertContains(ex.message ?: "", "too large")
     }
 
+    // --- Anthropic (Messages API) provider shape ----------------------------
+
+    private val anthropicCfg = CloudConfig(
+        baseUrl = "https://api.anthropic.test",
+        model = "claude-3-5-sonnet-latest",
+        apiKey = "anthropic-key-xyz",
+    )
+
+    @Test
+    fun anthropic_sends_messages_request_and_parses_content_text() = runTest {
+        var captured: io.ktor.client.request.HttpRequestData? = null
+        val engine = MockEngine { request ->
+            captured = request
+            respond(
+                content = ByteReadChannel(
+                    """{"content":[{"type":"text","text":"hi from claude"}]}""",
+                ),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = HttpCloudClient(anthropicCfg, engine, provider = CloudProvider.ANTHROPIC)
+
+        val answer = client.complete(
+            "What is 2+2?",
+            GenOptions(maxTokens = 256, temperature = 0.3f),
+        )
+
+        // Parsed from content[0].text.
+        assertEquals("hi from claude", answer)
+
+        val req = captured ?: fail("no request captured")
+
+        // HTTPS only, correct method + Anthropic endpoint (chatPath ignored).
+        assertEquals("https", req.url.protocol.name)
+        assertEquals("POST", req.method.value)
+        assertEquals("/v1/messages", req.url.encodedPath)
+
+        // Anthropic headers: x-api-key + anthropic-version (NOT bearer auth).
+        assertEquals("anthropic-key-xyz", req.headers["x-api-key"])
+        assertEquals("2023-06-01", req.headers["anthropic-version"])
+        assertNull(req.headers[HttpHeaders.Authorization], "must not send a bearer Authorization header")
+
+        // Body shape: {model, max_tokens (required), messages:[{role:user, content}]}.
+        val body = Json.parseToJsonElement(bodyText(req)).jsonObject
+        assertEquals("claude-3-5-sonnet-latest", body["model"]!!.jsonPrimitive.content)
+        assertEquals(256, body["max_tokens"]!!.jsonPrimitive.int)
+        val messages = body["messages"]!!.jsonArray
+        assertEquals(1, messages.size)
+        assertEquals("user", messages[0].jsonObject["role"]!!.jsonPrimitive.content)
+        assertEquals("What is 2+2?", messages[0].jsonObject["content"]!!.jsonPrimitive.content)
+    }
+
     /** Extract the serialized request body that ContentNegotiation produced. */
     private fun bodyText(req: io.ktor.client.request.HttpRequestData): String =
         (req.body as io.ktor.http.content.TextContent).text
