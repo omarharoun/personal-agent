@@ -10,19 +10,16 @@ package com.personalagent.shared.provisioning
  * file the `…/resolve/main/…` URL serves). NO arbitrary user URLs are ever
  * accepted; the onboarding UI picks from this list only.
  *
- * ## Honesty: what "just works" vs. what is gated
- * The first four entries are **ungated** and permissively licensed (Apache-2.0 /
+ * ## Honesty: every entry "just works"
+ * All four entries are **ungated** and permissively licensed (Apache-2.0 /
  * Apache-2.0-derived community quants). Their checksums are pinned, so the default
  * onboarding path — pick → download → verify → install — works end-to-end with no
  * account, token, or license click. [DEFAULT] points at the smallest of these.
  *
- * The last two are the popular **gated** models (Google Gemma, Meta Llama). Their
- * official repos return HTTP 401 without an accepted license + access token, so
- * `requiresProviderAuth = true` and their checksum is left [UNPINNED_SHA256]:
- * the maintainer cannot read the gated file to pin its hash, and the provisioner
- * **fails closed** on an unpinned checksum rather than installing something
- * unverified. The UI must route the user through the provider's consent + token
- * flow, after which the real checksum is pinned (see each entry's `note`).
+ * No gated entries are shipped here: the provisioner still **fails closed** on any
+ * unpinned/mismatched checksum (the [UNPINNED_SHA256] sentinel and the Sha256
+ * verifier remain in the codebase), but the curated catalog deliberately offers
+ * only models the user can actually fetch and verify without a provider account.
  */
 class DefaultModelCatalog : ModelCatalog {
     override fun options(): List<ModelOption> = CATALOG
@@ -88,35 +85,6 @@ class DefaultModelCatalog : ModelCatalog {
                 licenseUrl = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF",
                 requiresProviderAuth = false,
                 note = "Embeddings model (not a chat model) — powers on-device memory/RAG. ~80 MB, ungated.",
-            ),
-            // --- Gated: provider auth required; checksum pinned only post-consent
-            ModelOption(
-                id = "gemma-2-2b-it-q4_k_m",
-                displayName = "Gemma 2 2B Instruct (Q4_K_M)",
-                sizeBytes = 1_708_582_752L, // size from the public community mirror; verify against the official file
-                url = "https://huggingface.co/google/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
-                sha256 = UNPINNED_SHA256,
-                quant = "Q4_K_M",
-                licenseName = "Gemma",
-                licenseUrl = "https://ai.google.dev/gemma/terms",
-                requiresProviderAuth = true,
-                note = "GATED: the official Google repo returns 401 until you accept the Gemma license and " +
-                    "supply a Hugging Face token. Checksum is unpinned and the installer fails closed until " +
-                    "the real SHA-256 is pinned from the file you gain access to.",
-            ),
-            ModelOption(
-                id = "llama-3.2-1b-instruct-q4_k_m",
-                displayName = "Llama 3.2 1B Instruct (Q4_K_M)",
-                sizeBytes = 807_694_464L, // size from the public community mirror; verify against the official file
-                url = "https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-                sha256 = UNPINNED_SHA256,
-                quant = "Q4_K_M",
-                licenseName = "Llama-3.2-Community",
-                licenseUrl = "https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct/blob/main/LICENSE.txt",
-                requiresProviderAuth = true,
-                note = "GATED: the official Meta repo returns 401 until you accept the Llama 3.2 Community " +
-                    "License and supply a Hugging Face token. Checksum is unpinned and the installer fails " +
-                    "closed until the real SHA-256 is pinned from the file you gain access to.",
             ),
         )
     }

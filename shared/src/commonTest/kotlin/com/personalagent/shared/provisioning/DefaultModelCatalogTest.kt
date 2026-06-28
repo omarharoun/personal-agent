@@ -7,12 +7,27 @@ import kotlin.test.assertTrue
 
 /**
  * Guards the trust root: the curated catalog must be HTTPS-only, on trusted hosts,
- * honestly typed (pinned checksums for the ungated default path; unpinned + gated
- * for provider-gated models), and free of duplicate ids.
+ * honestly typed (every entry is ungated with a real pinned checksum), and free of
+ * duplicate ids. No provider-gated entries are shipped, yet the fail-closed
+ * mechanism for unpinned checksums still holds (see [unpinned_checksum_fails_closed]).
  */
 class DefaultModelCatalogTest {
 
     private val catalog = DefaultModelCatalog().options()
+
+    @Test
+    fun has_exactly_four_ungated_entries_with_smollm2_default() {
+        assertEquals(4, catalog.size, "catalog should have exactly four curated entries")
+        assertTrue(
+            catalog.none { it.requiresProviderAuth },
+            "no entry may require provider auth — every model must be fetchable",
+        )
+        assertEquals(
+            "smollm2-360m-instruct-q4_k_m",
+            DefaultModelCatalog.DEFAULT.id,
+            "DEFAULT must still be the smallest ungated model",
+        )
+    }
 
     @Test
     fun is_non_empty_and_has_unique_ids() {
@@ -63,18 +78,43 @@ class DefaultModelCatalogTest {
     }
 
     @Test
-    fun gated_models_require_auth_and_carry_a_note() {
-        val gated = catalog.filter { it.requiresProviderAuth }
-        assertTrue(gated.isNotEmpty(), "expected at least one gated model to model the honest reality")
-        for (option in gated) {
-            // Gated entries are honestly left unpinned (maintainer can't read them to pin a hash).
+    fun every_entry_is_ungated_and_pinned() {
+        // The curated catalog no longer ships gated entries: every model must be
+        // fetchable without a provider account AND carry a real pinned checksum.
+        for (option in catalog) {
             assertFalse(
-                isChecksumPinned(option.sha256),
-                "${option.id} is gated; its checksum should be the unpinned sentinel until access is granted",
+                option.requiresProviderAuth,
+                "${option.id} must not require provider auth",
             )
-            assertTrue(option.note.isNotBlank(), "${option.id} must explain the gating to the user")
-            assertTrue(option.licenseName.isNotBlank() && option.licenseUrl.startsWith("https://"))
+            assertTrue(
+                isChecksumPinned(option.sha256),
+                "${option.id} must have a real pinned checksum the installer can verify",
+            )
         }
+    }
+
+    @Test
+    fun unpinned_checksum_fails_closed() {
+        // The fail-closed mechanism is independent of the catalog: an UNPINNED_SHA256
+        // (or otherwise non-hex) checksum is never treated as pinned, so the
+        // provisioner refuses to install it. We assert this directly on an inline
+        // ModelOption rather than relying on a catalog entry to carry the sentinel.
+        val unverified = ModelOption(
+            id = "inline-unpinned",
+            displayName = "Inline Unpinned (test)",
+            sizeBytes = 1L,
+            url = "https://huggingface.co/example/repo/resolve/main/model.gguf",
+            sha256 = UNPINNED_SHA256,
+            quant = "Q4_K_M",
+            licenseName = "Test",
+            licenseUrl = "https://huggingface.co/example/repo",
+            requiresProviderAuth = true,
+            note = "Inline fixture: an unpinned checksum must fail closed.",
+        )
+        assertFalse(
+            isChecksumPinned(unverified.sha256),
+            "the UNPINNED_SHA256 sentinel must never count as a pinned checksum",
+        )
     }
 
     @Test
