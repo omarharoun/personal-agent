@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Warm "bone" cream — matches the Compose light background. -->
+    <color name="pa_window_background">#F0EEE6</color>
+</resources>

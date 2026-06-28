@@ -27,6 +27,8 @@ struct ConversationView: View {
                 Divider()
                 inputBar
             }
+            .background(Color.paBackground.ignoresSafeArea())
+            .tint(.paAccent) // Claude coral — primary action only
             .navigationTitle("Personal Agent")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

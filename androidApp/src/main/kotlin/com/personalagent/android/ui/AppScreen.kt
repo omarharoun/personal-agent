@@ -221,8 +221,8 @@ private fun ConversationSurface(
 @Composable
 private fun MessageBubble(msg: Message) {
     val alignment = when (msg.role) {
-        Message.Role.USER -> Alignment.End
-        else -> Alignment.Start
+        Message.Role.USER -> Alignment.CenterEnd
+        else -> Alignment.CenterStart
     }
     val container = when (msg.role) {
         Message.Role.USER -> MaterialTheme.colorScheme.primary

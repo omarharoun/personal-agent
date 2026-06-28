@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark variant: warm near-black window background to avoid a light flash. -->
+    <style name="Theme.PersonalAgent" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/pa_window_background_dark</item>
+        <item name="android:colorBackground">@color/pa_window_background_dark</item>
+    </style>
+</resources>

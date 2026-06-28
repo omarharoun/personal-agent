@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose draws the UI; this base theme just keeps the system happy
-         before the Compose content takes over. -->
-    <style name="Theme.PersonalAgent" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Compose draws the UI; this base theme sets the window background to the
+         warm "bone" cream so there's no white flash before Compose takes over. -->
+    <style name="Theme.PersonalAgent" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/pa_window_background</item>
+        <item name="android:colorBackground">@color/pa_window_background</item>
+    </style>
 </resources>

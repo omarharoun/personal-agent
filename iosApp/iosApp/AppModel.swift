@@ -147,6 +147,9 @@ final class AppModel: ObservableObject {
     private var embedder: Embedder!
     private var llm: OnDeviceLlm!
     private var conversationService: ConversationService!
+    /// BYO-key cloud wallet (Stream 3). Exposed so the Settings cloud section can
+    /// read/write provider keys; keys are stored encrypted, never in plaintext.
+    private(set) var cloudKeyStore: CloudKeyStore!
 
     /// Exposed to the UI so it can show whether the local model is ready.
     @Published var llmAvailable: Bool = false
@@ -267,12 +270,16 @@ final class AppModel: ObservableObject {
         )
         self.embedder = IosFactories.shared.createEmbedder(native: IosEmbedder())
         self.llm = IosFactories.shared.createOnDeviceLlm(native: IosOnDeviceLlm())
+        // BYO-key cloud (Stream 3): keys stored ENCRYPTED via the same crypto.
+        self.cloudKeyStore = IosFactories.shared.createCloudKeyStore(crypto: crypto)
+        // Derive the cloud client from the user's BYO-key selection; with no key
+        // set it stays UnavailableCloudClient → fully on-device.
         self.conversationService = IosFactories.shared.createConversationService(
             llm: llm,
             store: store,
             embedder: embedder,
             crypto: crypto,
-            cloudConfig: nil   // cloud escalation OFF until a zero-retention provider is configured
+            cloudKeyStore: cloudKeyStore
         )
         self.clock = IosFactories.shared.systemClock()
         self.modelProvisioner = IosFactories.shared.createModelProvisioner(native: IosModelProvisioner())

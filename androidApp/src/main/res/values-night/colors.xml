@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Warm near-black — matches the Compose dark background. -->
+    <color name="pa_window_background_dark">#1F1E1D</color>
+</resources>

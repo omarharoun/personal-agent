@@ -25,6 +25,20 @@ struct SettingsView: View {
                     Text("Download, replace, or remove the on-device model. "
                          + "Everything runs offline once installed.")
                 }
+
+                // BYO-key cloud (Anthropic / OpenAI). Off by default → on-device only.
+                Section("Cloud (optional)") {
+                    NavigationLink {
+                        CloudSettingsView(keyStore: model.cloudKeyStore)
+                    } label: {
+                        Label("Cloud provider & API key", systemImage: "key")
+                    }
+                } footer: {
+                    Text("Optionally connect your own Anthropic (Claude) or OpenAI key "
+                         + "for harder questions. Billed separately by the provider; a "
+                         + "Claude Pro / ChatGPT Plus subscription can't be used. With no "
+                         + "key set, the app stays fully on-device.")
+                }
             }
             .navigationTitle("Settings")
         }

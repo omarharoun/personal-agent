@@ -7,7 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
+import com.personalagent.android.ui.theme.PersonalAgentTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,7 +26,7 @@ class MainActivity : ComponentActivity() {
         val container = (application as PersonalAgentApp).container
 
         setContent {
-            MaterialTheme {
+            PersonalAgentTheme {
                 // Ask for notification permission once (Android 13+/API 33).
                 val permissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
