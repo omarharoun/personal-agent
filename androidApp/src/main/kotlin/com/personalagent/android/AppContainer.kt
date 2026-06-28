@@ -2,9 +2,12 @@ package com.personalagent.android
 
 import android.content.Context
 import com.personalagent.android.embedding.EmbedderFactory
+import com.personalagent.android.llm.AndroidModelProvisioner
 import com.personalagent.android.llm.LlmModelProvisioning
 import com.personalagent.android.notification.AndroidReminderScheduler
+import com.personalagent.android.onboarding.OnboardingRepository
 import com.personalagent.android.onboarding.SecuritySetupRepository
+import com.personalagent.shared.provisioning.ModelProvisioner
 import com.personalagent.shared.cloud.CloudClient
 import com.personalagent.shared.cloud.CloudConfig
 import com.personalagent.shared.cloud.DefaultPayloadPrep
@@ -82,6 +85,22 @@ class AppContainer(
      */
     val securitySetup: SecuritySetupRepository =
         SecuritySetupRepository(encrypted("security_setup"))
+
+    /**
+     * First-run onboarding state (Welcome → recovery → AI model setup → Done).
+     * Gates the onboarding flow so it shows once. Separate from [securitySetup]
+     * so the AI-setup step is part of the same once-only flow.
+     */
+    val onboarding: OnboardingRepository =
+        OnboardingRepository(encrypted("onboarding"))
+
+    /**
+     * On-device model provisioning (download-from-trusted-source → verify →
+     * install) used by the onboarding AI step and the Settings entry. Implements
+     * the sibling-owned `com.personalagent.shared.provisioning` contract; the
+     * real fetch happens at runtime and needs a device + network.
+     */
+    val modelProvisioner: ModelProvisioner = AndroidModelProvisioner(appContext)
 
     /**
      * 🔒 CRISIS-CRITICAL (Step 7) — consent-first crisis-safety wiring. 🔒

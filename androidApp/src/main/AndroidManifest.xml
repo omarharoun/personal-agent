@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Network for the user-initiated on-device model download (provisioning). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Notifications (runtime permission required on Android 13+/API 33). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Exact alarms so a reminder fires at the precise minute (API 31+/33+). -->
