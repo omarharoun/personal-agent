@@ -19,19 +19,13 @@ struct ContentView: View {
             // Once-only "Set up your AI" step, shown after recovery setup.
             OnboardingFlowView()
         } else {
-            TabView {
-                NotesView()
-                    .tabItem { Label("Notes", systemImage: "note.text") }
-                RemindersView()
-                    .tabItem { Label("Reminders", systemImage: "bell") }
-                PlanView()
-                    .tabItem { Label("Plan", systemImage: "checklist") }
-                // 🔒 Step 7 crisis-safety surface (consent-first; no autonomy).
-                TrustedContactsView()
-                    .tabItem { Label("Support", systemImage: "heart.circle") }
-                SettingsView()
-                    .tabItem { Label("Settings", systemImage: "gearshape") }
-            }
+            // UX Stream 1: ONE conversational surface. Notes/Reminders/Plan are now
+            // capabilities the agent invokes behind the scenes; Settings lives behind
+            // a gear toolbar button, and the 🔒 crisis-safety "Support" surface stays
+            // reachable from that same menu (moved, not deleted). The old per-tab
+            // views (NotesView/RemindersView/PlanView, below) are retained but no
+            // longer routed.
+            ConversationView()
         }
     }
 }

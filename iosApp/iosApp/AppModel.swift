@@ -20,6 +20,115 @@ final class AppModel: ObservableObject {
     @Published var planItems: [PlanItem] = []
     @Published var message: String?
 
+    // MARK: - UX Stream 1: single conversational surface
+    //
+    // The app no longer has Notes/Reminders/Plan tabs. Every typed turn is routed
+    // by the SHARED `IntentRouter` (same logic as Android): note/reminder/plan
+    // capabilities are invoked behind the scenes and confirmed in-line; everything
+    // else is answered by the on-device `conversationService`.
+
+    /// One line in the conversation transcript.
+    struct ChatMessage: Identifiable {
+        enum Role { case user, assistant, system }
+        let id = UUID()
+        let role: Role
+        let text: String
+    }
+
+    @Published var messages: [ChatMessage] = [
+        ChatMessage(
+            role: .assistant,
+            text: "Hi — I'm your personal agent. Just talk to me. "
+                + "I can take notes, set reminders, and track your plan as we go."
+        )
+    ]
+
+    /// True while an AI reply is in flight (disables the send button).
+    @Published var sending: Bool = false
+
+    /// Friendly fallback when no on-device model is installed (mirrors Android).
+    private let modelUnavailableFallback =
+        "I can't answer that yet — there's no AI model running on this device. "
+        + "Install one from Settings (the gear), or add an API key, and I'll be able to chat. "
+        + "Notes, reminders, and plans still work right now."
+
+    private func appendMessage(_ role: ChatMessage.Role, _ text: String) {
+        messages.append(ChatMessage(role: role, text: text))
+    }
+
+    /// Handle one user turn: echo it, route it through the shared `IntentRouter`,
+    /// and either confirm a saved capability or fetch an AI reply.
+    func send(_ input: String) async {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !sending, isReady else { return }
+        appendMessage(.user, text)
+
+        // Shared, model-free router. `IntentRouter` is a Kotlin `object` → `.shared`.
+        let intent = IntentRouter.shared.parse(input: text, nowMillis: clock.nowMillis())
+
+        // Plain KMP/Obj-C interop: the sealed interface is bridged as a base class
+        // with flattened subclass names (same pattern as `ScheduleResultRejected`).
+        switch intent {
+        case let note as AgentIntentCreateNote:
+            await addNote(title: note.title, body: note.body)
+            let preview = note.title.isEmpty ? note.body : note.title
+            appendMessage(.system, "Saved a note: \(preview)")
+
+        case let reminder as AgentIntentCreateReminder:
+            if let whenMillis = reminder.whenMillisHint {
+                await scheduleReminderAt(title: reminder.text, triggerAtMillis: whenMillis.int64Value)
+                appendMessage(.system, "Reminder set: \(reminder.text)")
+            } else {
+                // No parseable time — default to ~1h and tell the user (mirrors Android).
+                let defaultAt = clock.nowMillis() + 60 * 60_000
+                await scheduleReminderAt(title: reminder.text, triggerAtMillis: defaultAt)
+                appendMessage(
+                    .system,
+                    "I didn't catch a time, so I set a reminder for about an hour from now: "
+                        + "\(reminder.text). Tell me \"in N minutes/hours\" to change it."
+                )
+            }
+
+        case let plan as AgentIntentAddPlanItem:
+            await addPlanItem(title: plan.title)
+            appendMessage(.system, "Added to your plan: \(plan.title)")
+
+        case let askIntent as AgentIntentAsk:
+            await ask(askIntent.text)
+
+        default:
+            // Defensive: unknown intent → treat as a question.
+            await ask(text)
+        }
+    }
+
+    private func ask(_ text: String) async {
+        sending = true
+        defer { sending = false }
+        let reply = await respond(to: text)
+        if let reply, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            appendMessage(.assistant, reply.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            appendMessage(.assistant, modelUnavailableFallback)
+        }
+    }
+
+    /// Schedule a reminder at an ABSOLUTE epoch-millis trigger time (the router
+    /// returns absolute times). `scheduleReminder(title:minutesFromNow:)` above is
+    /// kept for any remaining minute-based callers.
+    private func scheduleReminderAt(title: String, triggerAtMillis: Int64) async {
+        guard isReady else { return }
+        let result = try? await reminderService.schedule(title: title, triggerAtMillis: triggerAtMillis, note: "")
+        if let rejected = result as? ScheduleResultRejected {
+            switch rejected.reason {
+            case .blankTitle: message = "Enter a title"
+            case .triggerInPast: message = "Pick a future time"
+            default: message = "Could not set reminder"
+            }
+        }
+        await refresh()
+    }
+
     /// True until an encryption key exists on this device. While true the UI shows
     /// the recovery-setup screen instead of the app, and no encrypted store exists.
     @Published var needsSetup: Bool
