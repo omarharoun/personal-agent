@@ -1,6 +1,7 @@
 package com.personalagent.shared.ios
 
 import com.personalagent.shared.cloud.CloudClient
+import com.personalagent.shared.cloud.DynamicCloudClient
 import com.personalagent.shared.cloud.CloudConfig
 import com.personalagent.shared.cloud.CloudKeyStore
 import com.personalagent.shared.cloud.DefaultPayloadPrep
@@ -185,7 +186,9 @@ object IosFactories {
         crypto: SecretKeyProvider,
         cloudKeyStore: CloudKeyStore,
     ): ConversationService {
-        val cloudClient: CloudClient = cloudKeyStore.activeCloudClient() ?: UnavailableCloudClient
+        // 🔧 Re-resolve the BYO key per use so a newly-saved key takes effect with
+        // no app restart (mirrors Android). Reads from the encrypted store each time.
+        val cloudClient: CloudClient = DynamicCloudClient { cloudKeyStore.activeCloudClient() }
         return ConversationService(
             llm = llm,
             memory = createMemoryService(store, embedder, crypto),

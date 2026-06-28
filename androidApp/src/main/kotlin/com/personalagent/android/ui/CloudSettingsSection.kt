@@ -42,8 +42,8 @@ import com.personalagent.shared.cloud.CloudProvider
  *
  * 🔒 The key is written straight into the encrypted [CloudKeyStore]; it is never
  * logged and the field is password-masked. With no key set the app stays fully
- * on-device. A newly-saved key takes effect on the next app launch (the cloud
- * client is resolved at container construction).
+ * on-device. A newly-saved key takes effect **immediately** — the cloud client is
+ * resolved per-use (see `DynamicCloudClient`), so no restart is required.
  */
 @Composable
 fun CloudSettingsSection(
@@ -148,7 +148,7 @@ fun CloudSettingsSection(
                         keyStore.setActiveProvider(provider)
                         keyInput = ""
                         hasSavedKey = true
-                        status = "Saved. Restart the app to use cloud assist."
+                        status = "Saved — cloud assist is ready. No restart needed."
                     },
                 ) { Text("Save") }
 

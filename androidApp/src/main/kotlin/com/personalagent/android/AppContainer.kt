@@ -12,6 +12,7 @@ import com.personalagent.shared.provisioning.ModelProvisioner
 import com.personalagent.shared.cloud.CloudClient
 import com.personalagent.shared.cloud.CloudConfig
 import com.personalagent.shared.cloud.CloudKeyStore
+import com.personalagent.shared.cloud.DynamicCloudClient
 import com.personalagent.shared.cloud.DefaultPayloadPrep
 import com.personalagent.shared.cloud.HeuristicEscalationPolicy
 import com.personalagent.shared.cloud.HttpCloudClient
@@ -211,23 +212,19 @@ class AppContainer(
         CloudKeyStore(encrypted("cloud_keys"))
 
     /**
-     * Cloud escalation transport (Step 4 + Stream 3). **Default-OFF.** The client
-     * is resolved, in order:
-     *   1. an explicit [cloudConfig] passed to this container (e.g. a managed
-     *      zero-retention provider) → [HttpCloudClient];
-     *   2. otherwise the user's BYO-key selection in [cloudKeyStore], if they have
-     *      chosen an active provider AND set its key → a provider-aware client;
-     *   3. otherwise [UnavailableCloudClient], which throws if ever reached.
+     * Cloud escalation transport (Step 4 + Stream 3). **Default-OFF.**
+     *   1. an explicit [cloudConfig] → [HttpCloudClient]; otherwise
+     *   2. a [DynamicCloudClient] that re-reads the user's BYO-key selection from
+     *      the encrypted [cloudKeyStore] **on every escalation**.
      *
-     * So with neither configured, escalation prep is wired but no data can leave
-     * the device. The API key is read from the encrypted store at runtime — never
-     * hardcoded, never logged. (Resolved once at container construction; the
-     * Settings UI surfaces that a relaunch applies a newly-saved key.)
+     * 🔧 Resolving per-use (not once at construction) is deliberate: a key the user
+     * saves in Settings takes effect IMMEDIATELY — no app restart. With no provider/
+     * key set, the dynamic client throws on use, so the app stays fully on-device.
+     * The key is read from the encrypted store at runtime — never hardcoded/logged.
      */
     val cloudClient: CloudClient =
         cloudConfig?.let { HttpCloudClient(it) }
-            ?: cloudKeyStore.activeCloudClient()
-            ?: UnavailableCloudClient
+            ?: DynamicCloudClient { cloudKeyStore.activeCloudClient() }
 
     /**
      * Step-4 conversation orchestrator. The real on-device anonymizer

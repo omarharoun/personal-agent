@@ -49,3 +49,30 @@ object UnavailableCloudClient : CloudClient {
 
 /** Raised when escalation is requested but no usable [CloudClient] is wired in. */
 class CloudUnavailableException(message: String) : IllegalStateException(message)
+
+/**
+ * A [CloudClient] that **re-resolves its real client on every call** via [resolve].
+ *
+ * 🔧 This is what makes a newly-saved BYO API key take effect IMMEDIATELY, with no
+ * app restart. The app wires this once into [com.personalagent.shared.conversation
+ * .ConversationService]; each escalation calls [resolve] (e.g.
+ * `cloudKeyStore.activeCloudClient()`), so the current provider + key are read at
+ * use time rather than frozen at container-construction time. If no provider/key
+ * is configured, [resolve] returns null and this throws [CloudUnavailableException]
+ * (the app stays on-device).
+ *
+ * [resolve] reads the key from the encrypted store on each use; the key is never
+ * logged and [name] never includes it.
+ */
+class DynamicCloudClient(
+    private val resolve: () -> CloudClient?,
+) : CloudClient {
+    override val name: String = "byo-key (resolved per use)"
+
+    override suspend fun complete(prompt: String, options: GenOptions): String {
+        val client = resolve() ?: throw CloudUnavailableException(
+            "No cloud provider/key is configured. Set one in Settings → Cloud assist.",
+        )
+        return client.complete(prompt, options)
+    }
+}

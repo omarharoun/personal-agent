@@ -11,8 +11,8 @@ import Shared
 /// 🔒 The key is written straight into the encrypted `CloudKeyStore`
 /// (`IosFactories.createCloudKeyStore(crypto:)`, AES-GCM at rest). It is never
 /// logged and the field is `SecureField`-masked. With no key set the app stays
-/// fully on-device; a newly-saved key takes effect on the next launch (the cloud
-/// client is resolved when the conversation service is built).
+/// fully on-device; a newly-saved key takes effect immediately (the cloud client
+/// is resolved per-use via DynamicCloudClient — no restart needed).
 ///
 /// Construct it with the app's shared `CloudKeyStore`, e.g. expose a
 /// `cloudKeyStore` on `AppModel` built via
@@ -96,7 +96,7 @@ struct CloudSettingsView: View {
         keyStore.setActiveProvider(provider: provider)
         keyInput = ""
         hasSavedKey = true
-        status = "Saved. Restart the app to use cloud assist."
+        status = "Saved — cloud assist is ready. No restart needed."
     }
 
     private func clear() {
