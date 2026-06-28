@@ -47,16 +47,9 @@ class ConversationViewModel(
     private var nextId = 0L
     private fun newId(): Long = nextId++
 
-    private val _messages = MutableStateFlow(
-        listOf(
-            Message(
-                id = newId(),
-                role = Message.Role.ASSISTANT,
-                text = "Hi — I'm your personal agent. Just talk to me. " +
-                    "I can take notes, set reminders, and track your plan as we go.",
-            ),
-        ),
-    )
+    // Starts empty so the surface can show a Claude-style home ("What's on your
+    // mind?" + example prompt chips) until the user sends their first message.
+    private val _messages = MutableStateFlow(emptyList<Message>())
     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
 
     private val _sending = MutableStateFlow(false)

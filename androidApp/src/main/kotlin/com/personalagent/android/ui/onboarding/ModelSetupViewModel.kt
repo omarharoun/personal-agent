@@ -4,11 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.personalagent.android.AppContainer
+import com.personalagent.android.llm.ModelDownloadController
 import com.personalagent.shared.provisioning.DefaultModelCatalog
 import com.personalagent.shared.provisioning.ModelOption
 import com.personalagent.shared.provisioning.ModelProvisioner
 import com.personalagent.shared.provisioning.ProvisionState
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,23 +31,47 @@ data class ModelSetupUiState(
 }
 
 /**
- * Drives on-device model provisioning for both the onboarding "Set up your AI"
- * step and the Settings entry. All download/verify/install work goes through the
- * shared [ModelProvisioner] contract; the UI never touches the network directly.
+ * Drives on-device model provisioning for the onboarding "Set up your AI" step and
+ * the Settings entry.
  *
- * Nothing downloads until [download]/[retry] is called — there is no
- * auto-download.
+ * The download itself runs in a WorkManager **foreground service** (see
+ * [ModelDownloadController]/[com.personalagent.android.llm.ModelDownloadWorker]),
+ * so it survives the app backgrounding, the screen locking, and process death. This
+ * ViewModel only *observes* that work — so closing/reopening the screen never kills
+ * an in-flight download. Nothing downloads until [download] is called.
  */
 class ModelSetupViewModel(
     private val provisioner: ModelProvisioner,
+    private val downloads: ModelDownloadController,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ModelSetupUiState())
     val state: StateFlow<ModelSetupUiState> = _state.asStateFlow()
 
-    private var job: Job? = null
+    init {
+        refreshInstalled()
+        // Re-attach to any download already running (or just-finished) so reopening
+        // the screen reflects the live foreground-service state.
+        viewModelScope.launch {
+            downloads.currentOptionId()?.let { id ->
+                DefaultModelCatalog().options().firstOrNull { it.id == id }
+                    ?.let { running -> _state.update { it.copy(selected = running) } }
+            }
+        }
+        observeDownload()
+    }
 
-    init { refreshInstalled() }
+    private fun observeDownload() {
+        viewModelScope.launch {
+            downloads.stateFlow(fallbackTotal = _state.value.selected.sizeBytes).collect { ps ->
+                _state.update { it.copy(provisionState = ps) }
+                if (ps is ProvisionState.Installed) {
+                    _state.update { it.copy(installedOptionId = it.selected.id) }
+                    refreshInstalled()
+                }
+            }
+        }
+    }
 
     /** Re-checks which catalog option is installed on-device right now. */
     fun refreshInstalled() {
@@ -68,30 +92,19 @@ class ModelSetupViewModel(
 
     fun setWifiOnly(enabled: Boolean) = _state.update { it.copy(wifiOnly = enabled) }
 
-    /** Start (or restart) provisioning the selected model. */
+    /** Start (or resume) downloading the selected model in the foreground service. */
     fun download() {
         val s = _state.value
         if (s.isWorking) return
-        job?.cancel()
-        job = viewModelScope.launch {
-            provisioner.provision(s.selected, s.wifiOnly).collect { ps ->
-                _state.update { it.copy(provisionState = ps) }
-                if (ps is ProvisionState.Installed) {
-                    _state.update { it.copy(installedOptionId = it.selected.id) }
-                }
-            }
-        }
+        downloads.enqueue(s.selected, s.wifiOnly)
     }
 
-    /** Retry after a failure (same as starting again). */
-    fun retry() {
-        _state.update { it.copy(provisionState = ProvisionState.Idle) }
-        download()
-    }
+    /** Retry after a failure (re-enqueue; resumes from any partial file). */
+    fun retry() = download()
 
-    /** Cancel an in-flight download and reset to idle. */
+    /** Cancel the in-flight download and reset to idle (discards the partial file). */
     fun cancel() {
-        job?.cancel()
+        downloads.cancel()
         _state.update { it.copy(provisionState = ProvisionState.Idle) }
     }
 
@@ -107,6 +120,6 @@ class ModelSetupViewModel(
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            ModelSetupViewModel(container.modelProvisioner) as T
+            ModelSetupViewModel(container.modelProvisioner, container.modelDownloadController) as T
     }
 }

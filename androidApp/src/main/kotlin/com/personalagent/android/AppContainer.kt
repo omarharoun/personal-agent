@@ -113,6 +113,13 @@ class AppContainer(
     val modelProvisioner: ModelProvisioner = AndroidModelProvisioner(appContext)
 
     /**
+     * Robust, resumable model download (WorkManager foreground service). Survives
+     * backgrounding / screen-lock / process death; the UI only observes it.
+     */
+    val modelDownloadController: com.personalagent.android.llm.ModelDownloadController =
+        com.personalagent.android.llm.ModelDownloadController(appContext)
+
+    /**
      * 🔒 CRISIS-CRITICAL (Step 7) — consent-first crisis-safety wiring. 🔒
      *
      * The user's pre-chosen trusted contacts, sealed at rest via the same encrypted

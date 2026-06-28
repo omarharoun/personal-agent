@@ -1,13 +1,20 @@
 package com.personalagent.android.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -192,16 +199,25 @@ private fun ConversationSurface(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { inner ->
         Column(Modifier.fillMaxSize().padding(inner)) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    horizontal = 16.dp,
-                    vertical = 16.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(messages, key = { it.id }) { msg -> MessageBubble(msg) }
+            if (messages.isEmpty()) {
+                // Claude-style home: warm greeting + tappable example prompts that
+                // demonstrate what the agent can actually do.
+                HomeEmptyState(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    onPrompt = { convoVm.send(it) },
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        horizontal = 16.dp,
+                        vertical = 16.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(messages, key = { it.id }) { msg -> MessageBubble(msg) }
+                }
             }
 
             InputBar(
@@ -287,5 +303,78 @@ private fun InputBar(
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
             }
         }
+    }
+}
+
+/**
+ * Claude-style home shown when the conversation is empty: a warm greeting and a
+ * few tappable example prompts that demonstrate what the agent can actually do
+ * (notes, reminders, planning, thinking-through). Tapping one sends it.
+ */
+@Composable
+private fun HomeEmptyState(
+    onPrompt: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // (label shown on the card, prompt text that gets sent)
+    val examples = listOf(
+        "📝  Take a note" to "Take a note: weekend trip ideas",
+        "⏰  Set a reminder" to "Remind me to call mom in 2 hours",
+        "✅  Plan something" to "Add to my plan: finish the budget",
+        "💭  Think it through" to "Help me think through a decision",
+    )
+
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            "What's on your mind?",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Just talk to me. I can take notes, set reminders, track your plan, and " +
+                "think things through — all on your device.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(28.dp))
+
+        examples.forEach { (label, prompt) ->
+            Surface(
+                onClick = { onPrompt(prompt) },
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            ) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "“$prompt”",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "Tip: an AI model isn't required for notes, reminders, and plans — those " +
+                "work right away. Install a model (gear, top-right) or add an API key to chat.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Start,
+        )
     }
 }

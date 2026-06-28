@@ -35,13 +35,9 @@ final class AppModel: ObservableObject {
         let text: String
     }
 
-    @Published var messages: [ChatMessage] = [
-        ChatMessage(
-            role: .assistant,
-            text: "Hi — I'm your personal agent. Just talk to me. "
-                + "I can take notes, set reminders, and track your plan as we go."
-        )
-    ]
+    // Starts empty so the surface shows a Claude-style home ("What's on your
+    // mind?" + example prompt chips) until the first message is sent.
+    @Published var messages: [ChatMessage] = []
 
     /// True while an AI reply is in flight (disables the send button).
     @Published var sending: Bool = false

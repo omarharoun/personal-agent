@@ -19,12 +19,13 @@ import java.io.File
  * Real, fully on-device small LLM for Android.
  *
  * Runtime: **MediaPipe LLM Inference API** (`com.google.mediapipe:tasks-genai`),
- * a self-contained native runtime (no Google Play Services, no server). It runs
- * a small instruction-tuned model shipped as a single `.task` bundle —
- * default **Gemma 3 1B (int4)** for footprint; Llama 3.2 3B is a drop-in
- * alternative for quality. The final pick is a measurement decision on the
- * target phone (latency / RAM / quality), so the model path is configurable and
- * the default is just a sensible starting point.
+ * a self-contained native runtime (no Google Play Services, no server). It loads
+ * a small instruction-tuned model shipped as a single **`.task` bundle**. The
+ * curated [com.personalagent.shared.provisioning.DefaultModelCatalog] offers
+ * ungated `.task` conversions (SmolLM 135M / Qwen2.5 0.5B / TinyLlama 1.1B from
+ * Google's `litert-community`); whichever the user installs is resolved by
+ * [LlmModelProvisioning.resolveModelFile]. (Raw GGUF files do NOT load here — the
+ * runtime is `.task`-only, and the catalog is matched to that.)
  *
  * Everything runs offline: the `.task` weights are loaded from a real file path
  * (see [LlmModelProvisioning]) and inference issues no network calls.

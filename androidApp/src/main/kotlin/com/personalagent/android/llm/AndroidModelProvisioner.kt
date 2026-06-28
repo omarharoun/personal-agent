@@ -48,7 +48,7 @@ class AndroidModelProvisioner(context: Context) : ModelProvisioner {
      * (last path segment), falling back to the stable id.
      */
     private fun fileNameFor(option: ModelOption): String =
-        option.url.substringAfterLast('/').ifEmpty { "${option.id}.gguf" }
+        option.url.substringAfterLast('/').ifEmpty { "${option.id}.task" }
 
     /** Final resting place for [option]'s bundle (matches LlmModelProvisioning). */
     private fun installedFile(option: ModelOption): File =

@@ -97,6 +97,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
+    // Robust model download (foreground service, survives background/lock/death).
+    implementation(libs.androidx.work.runtime.ktx)
+
     // On-device embeddings (Step 2): all-MiniLM-L6-v2 via ONNX Runtime Mobile.
     implementation(libs.onnxruntime.android)
 
@@ -157,16 +160,15 @@ tasks.register("downloadEmbeddingModel") {
 
 // --- On-device LLM model provisioning (Step 3) ------------------------------
 //
-// The small LLM weights (`.task` bundle, ~0.5–2 GB) are NOT committed to git and
-// are NOT packaged in the APK — they are pushed to the device and loaded from a
-// real file path at runtime (see LlmModelProvisioning). The model is gated
-// (Gemma / Llama require accepting a license on Hugging Face / Kaggle), so there
-// is no unauthenticated direct download: obtain the `.task` file yourself, then
-// run this task to push it to the app's external-files dir.
+// The MediaPipe `.task` LLM bundles (~0.16–1.1 GB) are NOT committed to git and
+// are NOT packaged in the APK. Normally the in-app downloader fetches an ungated
+// `.task` from the curated catalog (DefaultModelCatalog). This dev task lets you
+// instead adb-push a local `.task` bundle to the app's external-files dir; the app
+// loads whichever `*.task` is present (see LlmModelProvisioning.resolveModelFile).
 //
-//     ./gradlew :androidApp:pushLlmModel -PllmModel=/abs/path/gemma3-1b-it-int4.task
+//     ./gradlew :androidApp:pushLlmModel -PllmModel=/abs/path/SomeModel.task
 //
-// Clones / installs without the model still build and run — the feature is gated
+// Clones / installs without a model still build and run — the feature is gated
 // by LlmModelProvisioning.isModelInstalled() / OnDeviceLlm.isAvailable.
 tasks.register<Exec>("pushLlmModel") {
     group = "ml"
@@ -175,8 +177,9 @@ tasks.register<Exec>("pushLlmModel") {
     val appId = android.defaultConfig.applicationId
     val modelPath = (project.findProperty("llmModel") as String?)
     val deviceDir = "/sdcard/Android/data/$appId/files/models/llm"
-    // Default filename the app looks for (keep in sync with LlmModelProvisioning).
-    val deviceFile = "$deviceDir/gemma3-1b-it-int4.task"
+    // Push under the source file's own name; the app resolves any *.task present.
+    val pushedName = modelPath?.substringAfterLast('/')?.ifEmpty { "model.task" } ?: "model.task"
+    val deviceFile = "$deviceDir/$pushedName"
 
     doFirst {
         require(modelPath != null) {

@@ -16,17 +16,31 @@ class DefaultModelCatalogTest {
     private val catalog = DefaultModelCatalog().options()
 
     @Test
-    fun has_exactly_four_ungated_entries_with_smollm2_default() {
-        assertEquals(4, catalog.size, "catalog should have exactly four curated entries")
+    fun has_three_ungated_task_entries_with_smollm_default() {
+        assertEquals(3, catalog.size, "catalog should have exactly three curated entries")
         assertTrue(
             catalog.none { it.requiresProviderAuth },
             "no entry may require provider auth — every model must be fetchable",
         )
         assertEquals(
-            "smollm2-360m-instruct-q4_k_m",
+            "smollm-135m-instruct-task-q8",
             DefaultModelCatalog.DEFAULT.id,
-            "DEFAULT must still be the smallest ungated model",
+            "DEFAULT must be the smallest ungated model",
         )
+    }
+
+    @Test
+    fun every_model_is_a_mediapipe_task_bundle() {
+        // 🛠️ The Android on-device runtime is MediaPipe LLM Inference, which loads
+        // a `.task` bundle — NOT raw GGUF. Every catalog URL must point at a `.task`
+        // file so a downloaded model can actually load and generate. (This is the
+        // exact bug that made "installed but not working": GGUF can't load.)
+        for (option in catalog) {
+            assertTrue(
+                option.url.endsWith(".task"),
+                "${option.id} must be a MediaPipe .task bundle, not ${option.url.substringAfterLast('.')}",
+            )
+        }
     }
 
     @Test
@@ -117,12 +131,8 @@ class DefaultModelCatalogTest {
         )
     }
 
-    @Test
-    fun includes_an_embeddings_option() {
-        // The on-device memory/RAG path needs an embeddings model in the catalog.
-        assertTrue(
-            catalog.any { it.id.contains("embed") },
-            "catalog should offer an embeddings model for on-device memory",
-        )
-    }
+    // NOTE: embeddings are NOT in this catalog. On-device memory/RAG uses the
+    // ONNX embedder (AndroidEmbedder + its bundled all-MiniLM asset), not a
+    // catalog download — so the LLM catalog stays `.task`-only and coherent with
+    // the MediaPipe runtime.
 }

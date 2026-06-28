@@ -62,22 +62,68 @@ struct ConversationView: View {
 
     // MARK: Transcript
 
+    @ViewBuilder
     private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(model.messages) { msg in
-                        MessageBubble(message: msg).id(msg.id)
+        if model.messages.isEmpty {
+            homeEmptyState
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(model.messages) { msg in
+                            MessageBubble(message: msg).id(msg.id)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
+                }
+                .onChange(of: model.messages.count) { _ in
+                    if let last = model.messages.last {
+                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
             }
-            .onChange(of: model.messages.count) { _ in
-                if let last = model.messages.last {
-                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+        }
+    }
+
+    /// Claude-style home: warm greeting + tappable example prompts that send.
+    private var homeEmptyState: some View {
+        // (card label, prompt text that gets sent)
+        let examples: [(String, String)] = [
+            ("📝  Take a note", "Take a note: weekend trip ideas"),
+            ("⏰  Set a reminder", "Remind me to call mom in 2 hours"),
+            ("✅  Plan something", "Add to my plan: finish the budget"),
+            ("💭  Think it through", "Help me think through a decision"),
+        ]
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("What's on your mind?")
+                    .font(.largeTitle).bold()
+                    .foregroundStyle(Color.paText)
+                Text("Just talk to me. I can take notes, set reminders, track your plan, "
+                     + "and think things through — all on your device.")
+                    .foregroundStyle(.secondary)
+                Spacer().frame(height: 12)
+                ForEach(examples, id: \.0) { label, prompt in
+                    Button {
+                        Task { await model.send(prompt) }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(label).font(.headline).foregroundStyle(Color.paText)
+                            Text("“\(prompt)”").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(Color.paSurface, in: RoundedRectangle(cornerRadius: 16))
+                    }
+                    .buttonStyle(.plain)
                 }
+                Spacer().frame(height: 8)
+                Text("Tip: notes, reminders, and plans work right away — no AI model "
+                     + "needed. Install a model (gear, top-right) or add an API key to chat.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
+            .padding(24)
         }
     }
 

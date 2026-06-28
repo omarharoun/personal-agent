@@ -10,16 +10,28 @@ package com.personalagent.shared.provisioning
  * file the `…/resolve/main/…` URL serves). NO arbitrary user URLs are ever
  * accepted; the onboarding UI picks from this list only.
  *
- * ## Honesty: every entry "just works"
- * All four entries are **ungated** and permissively licensed (Apache-2.0 /
- * Apache-2.0-derived community quants). Their checksums are pinned, so the default
- * onboarding path — pick → download → verify → install — works end-to-end with no
- * account, token, or license click. [DEFAULT] points at the smallest of these.
+ * ## FORMAT — MediaPipe LLM Inference `.task` bundles (not raw GGUF)
+ * 🛠️ These are **`.task` LiteRT/MediaPipe bundles**, the format the Android
+ * on-device runtime ([com.personalagent.android.llm.AndroidOnDeviceLlm] →
+ * MediaPipe `LlmInference`) actually loads. An earlier catalog shipped raw GGUF
+ * `Q4_K_M` files, which MediaPipe **cannot** load — so a "downloaded + verified"
+ * model never generated. These entries point at Google's own **ungated**
+ * `litert-community` `.task` conversions of the same small open models, so a
+ * downloaded model truly runs on-device.
  *
- * No gated entries are shipped here: the provisioner still **fails closed** on any
- * unpinned/mismatched checksum (the [UNPINNED_SHA256] sentinel and the Sha256
- * verifier remain in the codebase), but the curated catalog deliberately offers
- * only models the user can actually fetch and verify without a provider account.
+ * (iOS uses a different runtime — MLX — which needs MLX-format weights, not these
+ * `.task` bundles. The iOS model-provisioning path is a separate, Mac-verified
+ * concern; see `iosApp` and the README. This catalog is correct for **Android**.)
+ *
+ * ## Honesty: every entry "just works" on Android
+ * All three entries are **ungated** and permissively licensed (Apache-2.0). Their
+ * checksums are pinned, so the default onboarding path — pick → download → verify
+ * → install → load — works end-to-end with no account, token, or license click.
+ * [DEFAULT] points at the smallest (SmolLM 135M).
+ *
+ * The provisioner still **fails closed** on any unpinned/mismatched checksum (the
+ * [UNPINNED_SHA256] sentinel + the Sha256 verifier remain in the codebase); the
+ * curated catalog simply offers only models the user can actually fetch + verify.
  */
 class DefaultModelCatalog : ModelCatalog {
     override fun options(): List<ModelOption> = CATALOG
@@ -29,62 +41,48 @@ class DefaultModelCatalog : ModelCatalog {
          * The recommended default: smallest ungated model, so first-run onboarding
          * downloads the least and still lights up the on-device AI features.
          */
-        val DEFAULT: ModelOption get() = CATALOG.first { it.id == "smollm2-360m-instruct-q4_k_m" }
+        val DEFAULT: ModelOption get() = CATALOG.first { it.id == "smollm-135m-instruct-task-q8" }
 
         // Checksums + sizes below are the publisher's own Git-LFS `oid sha256:` /
         // `size`, pinned from each repo's `…/raw/main/…` pointer. The `url` is the
         // matching `…/resolve/main/…` download endpoint (302→ *.hf.co CDN, also
-        // covered by the trusted-host allowlist).
+        // covered by the trusted-host allowlist). All are `.task` MediaPipe bundles.
         private val CATALOG: List<ModelOption> = listOf(
-            // --- Ungated, permissively licensed: the default path works ---------
             ModelOption(
-                id = "smollm2-360m-instruct-q4_k_m",
-                displayName = "SmolLM2 360M Instruct (Q4_K_M)",
-                sizeBytes = 270_590_880L,
-                url = "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf",
-                sha256 = "2fa3f013dcdd7b99f9b237717fa0b12d75bbb89984cc1274be1471a465bac9c2",
-                quant = "Q4_K_M",
+                id = "smollm-135m-instruct-task-q8",
+                displayName = "SmolLM 135M Instruct (MediaPipe .task, q8)",
+                sizeBytes = 166_754_726L,
+                url = "https://huggingface.co/litert-community/SmolLM-135M-Instruct/resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task",
+                sha256 = "6987dce5ac4f71032b070cf13412a5de0e49c04d271a053fc7d9d59a0dc104e9",
+                quant = "q8",
                 licenseName = "Apache-2.0",
-                licenseUrl = "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct",
+                licenseUrl = "https://huggingface.co/litert-community/SmolLM-135M-Instruct",
                 requiresProviderAuth = false,
-                note = "Smallest default — ~258 MB, no account or token needed. Great for low-end devices.",
+                note = "Smallest default — ~159 MB, no account or token needed. Loads in the on-device MediaPipe runtime. Great for low-end devices.",
             ),
             ModelOption(
-                id = "qwen2.5-0.5b-instruct-q4_k_m",
-                displayName = "Qwen2.5 0.5B Instruct (Q4_K_M)",
-                sizeBytes = 491_400_032L,
-                url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-                sha256 = "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
-                quant = "Q4_K_M",
+                id = "qwen2.5-0.5b-instruct-task-q8",
+                displayName = "Qwen2.5 0.5B Instruct (MediaPipe .task, q8)",
+                sizeBytes = 546_660_344L,
+                url = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
+                sha256 = "e608953f169aeb1bd7b9155fec2559825e08453fc209b84eda3a781ed0452fd2",
+                quant = "q8",
                 licenseName = "Apache-2.0",
-                licenseUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+                licenseUrl = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct",
                 requiresProviderAuth = false,
-                note = "Official Qwen GGUF — no account needed. Stronger than SmolLM2 at a larger size.",
+                note = "~521 MB, ungated. Stronger than SmolLM at a larger size. Loads in the on-device MediaPipe runtime.",
             ),
             ModelOption(
-                id = "tinyllama-1.1b-chat-v1.0-q4_k_m",
-                displayName = "TinyLlama 1.1B Chat v1.0 (Q4_K_M)",
-                sizeBytes = 668_788_096L,
-                url = "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-                sha256 = "9fecc3b3cd76bba89d504f29b616eedf7da85b96540e490ca5824d3f7d2776a0",
-                quant = "Q4_K_M",
+                id = "tinyllama-1.1b-chat-task-q8",
+                displayName = "TinyLlama 1.1B Chat v1.0 (MediaPipe .task, q8)",
+                sizeBytes = 1_148_331_545L,
+                url = "https://huggingface.co/litert-community/TinyLlama-1.1B-Chat-v1.0/resolve/main/TinyLlama-1.1B-Chat-v1.0_multi-prefill-seq_q8_ekv1280.task",
+                sha256 = "0f09dc7f792bb8d49b6629effaee3ed1a99e4506b082cd353471bdf391dee053",
+                quant = "q8",
                 licenseName = "Apache-2.0",
-                licenseUrl = "https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+                licenseUrl = "https://huggingface.co/litert-community/TinyLlama-1.1B-Chat-v1.0",
                 requiresProviderAuth = false,
-                note = "Apache-2.0 chat model, no account needed. Larger download for more capability.",
-            ),
-            // --- Ungated embeddings model (for on-device memory/RAG) ------------
-            ModelOption(
-                id = "nomic-embed-text-v1.5-q4_k_m",
-                displayName = "Nomic Embed Text v1.5 (Q4_K_M, embeddings)",
-                sizeBytes = 84_106_624L,
-                url = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf",
-                sha256 = "d4e388894e09cf3816e8b0896d81d265b55e7a9fff9ab03fe8bf4ef5e11295ac",
-                quant = "Q4_K_M",
-                licenseName = "Apache-2.0",
-                licenseUrl = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF",
-                requiresProviderAuth = false,
-                note = "Embeddings model (not a chat model) — powers on-device memory/RAG. ~80 MB, ungated.",
+                note = "~1.07 GB, ungated. Most capable of the three; largest download. Loads in the on-device MediaPipe runtime.",
             ),
         )
     }

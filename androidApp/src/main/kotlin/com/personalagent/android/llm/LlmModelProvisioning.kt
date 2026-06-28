@@ -8,35 +8,29 @@ import java.io.File
  * Single place the Android app obtains an [OnDeviceLlm], plus the rules for
  * where the (large, gitignored) model file lives.
  *
- * The `.task` weights (≈0.5–2 GB) are **never** committed to git and are too big
- * to ship inside the APK. They are loaded from a real file path on the device,
- * resolved in this order:
+ * The on-device runtime is **MediaPipe LLM Inference**, which loads a `.task`
+ * bundle. The curated [com.personalagent.shared.provisioning.DefaultModelCatalog]
+ * downloads exactly those ungated `.task` bundles; the provisioner installs the
+ * chosen one under [MODEL_SUBDIR] using its own file name. So instead of looking
+ * for one hard-coded file name, we **resolve whichever `.task` bundle is present**
+ * in the model directory (only one model is installed at a time).
  *
- *  1. App external files dir — `<externalFilesDir>/models/llm/<MODEL_FILE>`.
- *     This is the recommended, app-private drop location. Provision it with:
+ * Resolution order:
+ *  1. App external files dir — the `models/llm` folder under getExternalFilesDir,
+ *     holding a `.task` bundle (the in-app downloader writes here).
+ *  2. The MediaPipe sample convention — the `/data/local/tmp/llm` folder — handy
+ *     during development (adb-push a `.task` bundle there).
  *
- *         adb push gemma3-1b-it-int4.task \
- *           /sdcard/Android/data/com.personalagent.android/files/models/llm/
- *
- *  2. The MediaPipe sample convention — `/data/local/tmp/llm/<MODEL_FILE>` —
- *     handy during development:
- *
- *         adb push gemma3-1b-it-int4.task /data/local/tmp/llm/
- *
- * Use [isModelInstalled] to gate the feature: clones / fresh installs without the
+ * Use [isModelInstalled] to gate the feature: clones / fresh installs without a
  * model still build and run; [OnDeviceLlm.isAvailable] simply reports `false`.
  */
 object LlmModelProvisioning {
 
-    /**
-     * Default model bundle filename. **Gemma 3 1B int4** is the footprint pick;
-     * swap to e.g. `llama-3.2-3b-it-int4.task` for quality. The real choice is a
-     * measurement decision on the target device — see the project README.
-     */
-    const val MODEL_FILE = "gemma3-1b-it-int4.task"
-
     /** App-private subdirectory (under external files dir) holding the model. */
     const val MODEL_SUBDIR = "models/llm"
+
+    /** The on-device runtime loads MediaPipe `.task` bundles. */
+    const val MODEL_EXTENSION = ".task"
 
     /** Development drop location matching the MediaPipe LLM samples. */
     private const val DEV_PATH = "/data/local/tmp/llm"
@@ -45,20 +39,28 @@ object LlmModelProvisioning {
     fun create(context: Context): OnDeviceLlm =
         AndroidOnDeviceLlm(context.applicationContext, resolveModelFile(context))
 
-    /** True only if a non-empty model bundle exists at one of the known paths. */
+    /** True only if a non-empty `.task` bundle exists at one of the known paths. */
     fun isModelInstalled(context: Context): Boolean =
         resolveModelFile(context).let { it.exists() && it.length() > 0L }
 
     /**
-     * Resolves the model file: the app external-files location wins if present,
-     * otherwise the dev path. Returns the external-files candidate when neither
-     * exists (so error messages point at the recommended location).
+     * Resolves the installed model file: the first non-empty `*.task` bundle in
+     * the app external-files model dir wins; otherwise the dev path. Returns a
+     * non-existent placeholder in the recommended dir when neither has one (so
+     * [isModelInstalled]/[OnDeviceLlm.isAvailable] report false and error copy
+     * points at the recommended location).
      */
     fun resolveModelFile(context: Context): File {
-        val external = File(context.getExternalFilesDir(null), "$MODEL_SUBDIR/$MODEL_FILE")
-        if (external.exists() && external.length() > 0L) return external
-        val dev = File(DEV_PATH, MODEL_FILE)
-        if (dev.exists() && dev.length() > 0L) return dev
-        return external
+        val externalDir = File(context.getExternalFilesDir(null), MODEL_SUBDIR)
+        firstTaskBundle(externalDir)?.let { return it }
+        firstTaskBundle(File(DEV_PATH))?.let { return it }
+        // Nothing installed: point at a non-existent file in the recommended dir.
+        return File(externalDir, "model$MODEL_EXTENSION")
     }
+
+    /** The first non-empty `*.task` file directly inside [dir], or null. */
+    private fun firstTaskBundle(dir: File): File? =
+        dir.listFiles()
+            ?.filter { it.isFile && it.length() > 0L && it.name.endsWith(MODEL_EXTENSION, ignoreCase = true) }
+            ?.minByOrNull { it.name } // deterministic if several somehow present
 }
