@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -28,12 +29,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 private enum class Tab(val label: String) {
-    NOTES("Notes"), REMINDERS("Reminders"), PLAN("Plan"), SUPPORT("Support")
+    NOTES("Notes"), REMINDERS("Reminders"), PLAN("Plan"), SUPPORT("Support"), SETTINGS("Settings")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppScreen(vm: AppViewModel, safetyVm: SafetyViewModel) {
+fun AppScreen(vm: AppViewModel, safetyVm: SafetyViewModel, container: com.personalagent.android.AppContainer) {
     val state by vm.state.collectAsStateWithLifecycle()
     var tab by remember { mutableStateOf(Tab.NOTES) }
     val snackbar = remember { SnackbarHostState() }
@@ -74,6 +75,12 @@ fun AppScreen(vm: AppViewModel, safetyVm: SafetyViewModel) {
                     icon = { Icon(Icons.Filled.Favorite, contentDescription = null) },
                     label = { Text(Tab.SUPPORT.label) },
                 )
+                NavigationBarItem(
+                    selected = tab == Tab.SETTINGS,
+                    onClick = { tab = Tab.SETTINGS },
+                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                    label = { Text(Tab.SETTINGS.label) },
+                )
             }
         },
     ) { inner ->
@@ -83,6 +90,7 @@ fun AppScreen(vm: AppViewModel, safetyVm: SafetyViewModel) {
                 Tab.REMINDERS -> RemindersScreen(state, vm)
                 Tab.PLAN -> PlanScreen(state, vm)
                 Tab.SUPPORT -> SafetyScreen(safetyVm, snackbar)
+                Tab.SETTINGS -> SettingsScreen(container)
             }
         }
     }
