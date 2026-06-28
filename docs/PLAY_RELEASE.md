@@ -59,7 +59,8 @@ the app ready for real users.
 - [ ] **Data Safety form** completed truthfully (draft: `docs/PLAY_DATA_SAFETY.md`) —
       target audience 18+ only.
 - [ ] **Content rating** questionnaire (IARC) — 18+/mature; answer honestly re: the
-      mental-health/crisis content.
+      mental-health/crisis content. **Exact answers: see
+      [`docs/STORE_AGE_RATING.md`](STORE_AGE_RATING.md).**
 - [ ] App title, short + full description, screenshots, feature graphic, app icon.
 - [x] Target audience = **18+ only**; **not** "designed for families".
 
