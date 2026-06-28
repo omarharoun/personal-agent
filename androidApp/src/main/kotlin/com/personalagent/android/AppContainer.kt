@@ -5,6 +5,7 @@ import com.personalagent.android.embedding.EmbedderFactory
 import com.personalagent.android.llm.AndroidModelProvisioner
 import com.personalagent.android.llm.LlmModelProvisioning
 import com.personalagent.android.notification.AndroidReminderScheduler
+import com.personalagent.android.onboarding.AgeGateRepository
 import com.personalagent.android.onboarding.OnboardingRepository
 import com.personalagent.android.onboarding.SecuritySetupRepository
 import com.personalagent.shared.provisioning.ModelProvisioner
@@ -85,6 +86,14 @@ class AppContainer(
      */
     val securitySetup: SecuritySetupRepository =
         SecuritySetupRepository(encrypted("security_setup"))
+
+    /**
+     * 🔞 18+ age-gate confirmation state. The very first onboarding gate: the app
+     * is restricted to adults, so this is checked before anything else. Persists
+     * only the boolean confirmation (never the date of birth).
+     */
+    val ageGate: AgeGateRepository =
+        AgeGateRepository(encrypted("age_gate"))
 
     /**
      * First-run onboarding state (Welcome → recovery → AI model setup → Done).

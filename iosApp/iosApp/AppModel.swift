@@ -59,6 +59,17 @@ final class AppModel: ObservableObject {
     /// encrypted KeyValueStorage — both record only that the flow ran.
     private let onboardingCompleteKey = "ai_model_onboarding_complete"
 
+    // MARK: 🔞 18+ age gate (the first gate, before encryption setup)
+    //
+    // The app is restricted to adults. This is checked before the encrypted store
+    // even exists (it precedes recovery setup), so the boolean confirmation lives
+    // in UserDefaults — it is a non-sensitive UI flag, not user data, and the date
+    // of birth itself is never stored. Mirrors the Android `AgeGateRepository`.
+
+    /// True until the user has confirmed they are 18 or older. Gates `AgeGateView`.
+    @Published var needsAgeConfirmation: Bool
+    private let ageConfirmedKey = "age_18plus_confirmed"
+
     // MARK: 🔒 Step 7 crisis-safety (consent-first; autonomous action disabled)
     //
     // The recognizer classifies ONLY (no autonomous outreach). The support view
@@ -79,6 +90,7 @@ final class AppModel: ObservableObject {
     @Published var distress: DistressPresentation?
 
     init() {
+        self.needsAgeConfirmation = !UserDefaults.standard.bool(forKey: ageConfirmedKey)
         let ready = keyStore.isSetUp
         self.needsSetup = !ready
         if ready {
@@ -87,6 +99,25 @@ final class AppModel: ObservableObject {
             // once-only AI-setup step (unless they've already completed it).
             self.needsModelOnboarding = !UserDefaults.standard.bool(forKey: onboardingCompleteKey)
         }
+    }
+
+    // MARK: - 🔞 18+ age gate
+
+    /// Whether a date of birth meets the 18+ requirement, via the shared,
+    /// unit-tested logic (`com.personalagent.shared.age`). The date of birth is
+    /// evaluated on-device and never stored.
+    func meetsAgeRequirement(year: Int32, month: Int32, day: Int32) -> Bool {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        let today = CalendarDate(year: Int32(c.year ?? 0), month: Int32(c.month ?? 0), day: Int32(c.day ?? 0))
+        let dob = CalendarDate(year: year, month: month, day: day)
+        return AgeGateKt.meetsMinimumAge(dob: dob, today: today, minAge: AgeGateKt.MINIMUM_AGE_YEARS)
+    }
+
+    /// Record that the user confirmed they are 18 or older and proceed. Only a
+    /// positive confirmation is ever stored (never the date of birth).
+    func confirmAgeIsAtLeast18() {
+        UserDefaults.standard.set(true, forKey: ageConfirmedKey)
+        needsAgeConfirmation = false
     }
 
     /// True once the encrypted store + services exist (i.e. setup is complete).

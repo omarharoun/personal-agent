@@ -9,6 +9,16 @@
 
 _Last updated: <FILL IN> · Contact: <FILL IN privacy contact email>_
 
+## Eligibility — 18 and older only
+
+**You must be 18 years of age or older to use Personal Agent.** The app and
+service are intended for adults and are **not directed to children under 18**. We
+do not knowingly allow under-18s to use the app: on first launch the app asks you
+to confirm your date of birth, and anyone under 18 is blocked from proceeding. The
+date of birth is checked on your device and is **not stored** — only a boolean
+"18 or older, confirmed" flag is kept. We do not knowingly collect any data from
+people under 18; the app holds no server-side data about anyone.
+
 ## The short version
 
 Personal Agent is an **on-device** personal assistant. Your notes, reminders,
@@ -88,8 +98,10 @@ Because data is on-device, you can delete it at any time:
 
 ## Children
 
-The app is not directed to children and collects no personal data into any
-server. Provide an age rating during Play submission.
+The app is **for adults 18+ only** and is not directed to children (see
+"Eligibility" above). It collects no personal data into any server. Set the app's
+content rating to an adult/mature (18+) audience during Play submission and do not
+enrol it in Google Play Families / Designed for Families.
 
 ## Changes
 

@@ -5,6 +5,18 @@
 > design. Confirm each answer against the shipping build (and after the 🔒 Gate
 > reviews) before submitting — Data Safety answers are a binding declaration.
 
+## Target audience & age (Play "App content" → Target audience)
+
+- **Target age group: 18 and older only.** Select only the 18+ age band.
+- The app is **NOT directed to children**; do **not** opt into Google Play
+  **Families / Designed for Families**.
+- The app enforces an in-app **18+ age gate** on first launch (date-of-birth
+  confirmation, checked on-device; under-18 users are blocked and cannot proceed).
+  The date of birth is not stored — only a boolean confirmation flag.
+- Set the **IARC content rating** questionnaire answers to reflect a mature (18+)
+  audience, and disclose that the app contains crisis / mental-health support
+  content (which may attract sensitive-content review — see `docs/PLAY_RELEASE.md`).
+
 ## Summary posture
 
 Personal Agent is on-device-first. With cloud escalation **off (the default)**,

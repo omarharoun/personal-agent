@@ -5,10 +5,15 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
+        // 🔞 18+ age gate — the FIRST gate, before everything else. The app is
+        // restricted to adults; an under-18 user is blocked and never proceeds.
+        if model.needsAgeConfirmation {
+            AgeGateView()
+        }
         // 🔒 Step 5: gate the app behind first-run encryption setup. Until a key
         // exists (and, for a new key, the user has confirmed they saved the
         // recovery code), no encrypted store exists and the app is not shown.
-        if model.needsSetup {
+        else if model.needsSetup {
             RecoverySetupView()
         } else if model.needsModelOnboarding {
             // Once-only "Set up your AI" step, shown after recovery setup.

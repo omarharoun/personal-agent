@@ -38,14 +38,30 @@ the app ready for real users.
 
 ---
 
+## Age restriction — 18+ (enforced in-app + declared in Play)
+
+- [x] **In-app 18+ age gate** is the first onboarding step on both platforms
+      (date-of-birth confirmation, checked on-device via the shared, unit-tested
+      `com.personalagent.shared.age` logic; under-18 users are blocked and cannot
+      proceed; DOB is not stored). Android: `AgeGateScreen` + `AgeGateRepository`,
+      gated in `MainActivity`. iOS: `AgeGateView` + `AppModel`, gated in `ContentView`.
+- [ ] **Play "App content" → Target audience: select only the 18+ age band.**
+- [ ] **Do NOT opt into Google Play Families / "Designed for Families."**
+- [ ] **IARC content-rating questionnaire:** answer for a **mature (18+)** audience
+      and disclose the crisis / mental-health support content.
+- [x] **Manifest carries no children's-app flag** (no `Designed for Families`
+      meta-data, no kids-category opt-in) — verified in `AndroidManifest.xml`.
+
 ## Store listing & policy
 
-- [ ] **Privacy policy** hosted at a public URL (draft: `docs/PRIVACY_POLICY.md`).
-- [ ] **Data Safety form** completed truthfully (draft: `docs/PLAY_DATA_SAFETY.md`).
-- [ ] **Content rating** questionnaire (IARC) — answer honestly re: the
+- [ ] **Privacy policy** hosted at a public URL (draft: `docs/PRIVACY_POLICY.md`) —
+      includes the 18+ eligibility clause.
+- [ ] **Data Safety form** completed truthfully (draft: `docs/PLAY_DATA_SAFETY.md`) —
+      target audience 18+ only.
+- [ ] **Content rating** questionnaire (IARC) — 18+/mature; answer honestly re: the
       mental-health/crisis content.
 - [ ] App title, short + full description, screenshots, feature graphic, app icon.
-- [ ] Target audience & "designed for families" eligibility.
+- [x] Target audience = **18+ only**; **not** "designed for families".
 
 ## Permissions justification (Play asks for these)
 
