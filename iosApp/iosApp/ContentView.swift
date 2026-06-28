@@ -10,6 +10,9 @@ struct ContentView: View {
         // recovery code), no encrypted store exists and the app is not shown.
         if model.needsSetup {
             RecoverySetupView()
+        } else if model.needsModelOnboarding {
+            // Once-only "Set up your AI" step, shown after recovery setup.
+            OnboardingFlowView()
         } else {
             TabView {
                 NotesView()
@@ -21,6 +24,8 @@ struct ContentView: View {
                 // 🔒 Step 7 crisis-safety surface (consent-first; no autonomy).
                 TrustedContactsView()
                     .tabItem { Label("Support", systemImage: "heart.circle") }
+                SettingsView()
+                    .tabItem { Label("Settings", systemImage: "gearshape") }
             }
         }
     }
