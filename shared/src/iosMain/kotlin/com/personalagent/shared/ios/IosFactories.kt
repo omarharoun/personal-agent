@@ -18,6 +18,11 @@ import com.personalagent.shared.memory.InMemoryVectorIndex
 import com.personalagent.shared.memory.IosEmbedderAdapter
 import com.personalagent.shared.memory.IosNativeEmbedder
 import com.personalagent.shared.memory.MemoryService
+import com.personalagent.shared.provisioning.IosModelProvisioningAdapter
+import com.personalagent.shared.provisioning.IosNativeModelProvisioner
+import com.personalagent.shared.provisioning.ModelOption
+import com.personalagent.shared.provisioning.ModelProvisioner
+import com.personalagent.shared.provisioning.ProvisionState
 import com.personalagent.shared.reminder.ReminderScheduler
 import com.personalagent.shared.reminder.ReminderService
 import com.personalagent.shared.safety.CrisisRecognizer
@@ -32,6 +37,12 @@ import com.personalagent.shared.store.LocalStore
 import com.personalagent.shared.store.PersistentLocalStore
 import com.personalagent.shared.util.Clock
 import com.personalagent.shared.util.SystemClock
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 /**
  * Clean Swift-facing entry points into the shared stack, so the SwiftUI app
@@ -183,4 +194,62 @@ object IosFactories {
         TrustedContactsStore(
             EncryptedKeyValueStorage(IosKeyValueStorage("trusted_contacts"), crypto),
         )
+
+    // MARK: On-device model provisioning (the "Set up your AI" onboarding step + Settings).
+    //
+    // The provisioning contract (com.personalagent.shared.provisioning) is owned
+    // by the `feat/model-provisioning-shared` sibling; the copy on this branch is
+    // a flagged stand-in for isolated compilation (see ModelProvisioning.kt). The
+    // bridge below mirrors the rest of this object: SwiftUI never constructs Kotlin
+    // objects with default args, and Swift never *produces* a Kotlin Flow — it
+    // implements the synchronous [IosNativeModelProvisioner] seam and consumes
+    // progress through [startProvision]'s callback.
+
+    /**
+     * Wrap the Swift-provided native provisioner ([IosNativeModelProvisioner],
+     * implemented by `IosModelProvisioner` over URLSession + CryptoKit) as the
+     * shared [ModelProvisioner]. Provided FROM Swift for the same reason as the
+     * embedder/LLM — the network + on-disk install live in native Apple APIs.
+     */
+    fun createModelProvisioner(native: IosNativeModelProvisioner): ModelProvisioner =
+        IosModelProvisioningAdapter(native)
+
+    /**
+     * Start provisioning [option] through the shared [ModelProvisioner] contract,
+     * delivering every [ProvisionState] (Downloading → Verifying → Installed, or
+     * Failed) to [onState] on the main thread so SwiftUI can update `@Published`
+     * state directly. There is NO auto-download — Swift calls this only when the
+     * user taps Download/Retry.
+     *
+     * Returns an [IosProvisionHandle]; call [IosProvisionHandle.cancel] to abort an
+     * in-flight download (the underlying transfer is aborted via the seam's
+     * `isCancelled` poll). Swift can't collect a Kotlin [kotlinx.coroutines.flow.Flow]
+     * ergonomically, so this exposes the flow as a cancellable callback — the
+     * supported interop direction (Swift *calls* Kotlin).
+     */
+    fun startProvision(
+        provisioner: ModelProvisioner,
+        option: ModelOption,
+        wifiOnly: Boolean,
+        onState: (ProvisionState) -> Unit,
+    ): IosProvisionHandle {
+        // Collect on Main so onState fires on the UI thread; the adapter already
+        // shifts the blocking download to Dispatchers.Default via flowOn.
+        val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+        val job = scope.launch {
+            provisioner.provision(option, wifiOnly).collect { state -> onState(state) }
+        }
+        return IosProvisionHandle(job)
+    }
+}
+
+/**
+ * Swift-facing handle to an in-flight provisioning run started by
+ * [IosFactories.startProvision]. Holds the collecting [Job]; [cancel] aborts the
+ * collection (and, through the seam's `isCancelled` poll, the native download).
+ */
+class IosProvisionHandle internal constructor(private val job: Job) {
+    fun cancel() {
+        job.cancel()
+    }
 }

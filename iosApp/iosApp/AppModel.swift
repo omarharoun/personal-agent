@@ -42,6 +42,23 @@ final class AppModel: ObservableObject {
     /// Exposed to the UI so it can show whether the local model is ready.
     @Published var llmAvailable: Bool = false
 
+    // MARK: On-device model provisioning ("Set up your AI")
+    //
+    // The shared `ModelProvisioner` contract drives the curated download → verify
+    // → install pipeline (see `IosModelProvisioner` + the iosMain adapter). The
+    // user always initiates it from the onboarding step or Settings — no
+    // auto-download. Built lazily in `buildServices` (needs an unlocked device).
+    private var modelProvisioner: ModelProvisioner!
+
+    /// True after first-run encryption setup but before the user has been through
+    /// the once-only "Set up your AI" step. Gates `OnboardingFlowView`.
+    @Published var needsModelOnboarding: Bool = false
+
+    /// Non-sensitive "has the user seen the AI-setup step?" flag, in UserDefaults
+    /// (UI state, not user data). The Android sibling keeps the equivalent in its
+    /// encrypted KeyValueStorage — both record only that the flow ran.
+    private let onboardingCompleteKey = "ai_model_onboarding_complete"
+
     // MARK: 🔒 Step 7 crisis-safety (consent-first; autonomous action disabled)
     //
     // The recognizer classifies ONLY (no autonomous outreach). The support view
@@ -66,6 +83,9 @@ final class AppModel: ObservableObject {
         self.needsSetup = !ready
         if ready {
             buildServices()
+            // Returning user who set up before this feature still gets the
+            // once-only AI-setup step (unless they've already completed it).
+            self.needsModelOnboarding = !UserDefaults.standard.bool(forKey: onboardingCompleteKey)
         }
     }
 
@@ -92,6 +112,8 @@ final class AppModel: ObservableObject {
     func finishSetup() async {
         buildServices()
         needsSetup = false
+        // Recovery setup done → advance into the once-only "Set up your AI" step.
+        needsModelOnboarding = !UserDefaults.standard.bool(forKey: onboardingCompleteKey)
         await refresh()
     }
 
@@ -113,7 +135,8 @@ final class AppModel: ObservableObject {
             cloudConfig: nil   // cloud escalation OFF until a zero-retention provider is configured
         )
         self.clock = IosFactories.shared.systemClock()
-        self.llmAvailable = llm.isAvailable
+        self.modelProvisioner = IosFactories.shared.createModelProvisioner(native: IosModelProvisioner())
+        refreshLlmAvailability()
 
         // 🔒 Step 7 crisis-safety services. The trusted-contacts store reuses the
         // SAME encryption key (`crypto`) as the main store.
@@ -121,6 +144,38 @@ final class AppModel: ObservableObject {
         self.resourceProvider = IosFactories.shared.createCrisisResourceProvider()
         self.crisisResponder = IosFactories.shared.createCrisisResponder()
         self.trustedContactsStore = IosFactories.shared.createTrustedContactsStore(crypto: crypto)
+    }
+
+    // MARK: - On-device model provisioning
+
+    /// Build a `ModelSetupModel` for the onboarding step or Settings, wired to the
+    /// shared provisioner. Its `onInstalledChange` re-derives `llmAvailable` so the
+    /// rest of the app lights up the moment a model is installed (or removed).
+    func makeModelSetupModel() -> ModelSetupModel {
+        ModelSetupModel(provisioner: modelProvisioner) { [weak self] in
+            self?.refreshLlmAvailability()
+        }
+    }
+
+    /// Mark the once-only "Set up your AI" step done (whether the user installed a
+    /// model or skipped) and reveal the main app.
+    func completeModelOnboarding() {
+        UserDefaults.standard.set(true, forKey: onboardingCompleteKey)
+        needsModelOnboarding = false
+        refreshLlmAvailability()
+    }
+
+    /// Re-derive whether on-device AI is ready. True if the MLX weights are present
+    /// (`IosOnDeviceLlm`) OR a verified catalog model has been provisioned.
+    ///
+    /// ⚠️ FLAG: the shared `ModelCatalog` lists LiteRT `.task` bundles while the iOS
+    /// LLM runtime is MLX (a safetensors directory). A provisioned catalog model
+    /// therefore marks AI as "set up" for the UX, but wiring it into *MLX inference*
+    /// needs MLX-format catalog entries (shared-catalog owner) — see the report.
+    func refreshLlmAvailability() {
+        guard isReady else { return }
+        let catalogInstalled = DefaultModelCatalog().options().contains { modelProvisioner.isInstalled(option: $0) }
+        llmAvailable = llm.isAvailable || catalogInstalled
     }
 
     /// Answer one turn through the shared Step-4 orchestrator (memory-grounded,
