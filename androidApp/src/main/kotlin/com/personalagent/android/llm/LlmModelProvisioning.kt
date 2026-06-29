@@ -35,25 +35,58 @@ object LlmModelProvisioning {
     /** Development drop location matching the MediaPipe LLM samples. */
     private const val DEV_PATH = "/data/local/tmp/llm"
 
-    /** Creates the on-device LLM bound to the resolved model path. */
-    fun create(context: Context): OnDeviceLlm =
-        AndroidOnDeviceLlm(context.applicationContext, resolveModelFile(context))
+    /**
+     * APK asset directory holding a BUNDLED `.task` model (provisioned at build
+     * time by the `:androidApp:downloadLlmModel` Gradle task, gitignored). When
+     * present, the on-device LLM works out of the box on a fresh install — no
+     * download required. The bundle is copied to [MODEL_SUBDIR] on first use.
+     */
+    const val BUNDLED_ASSET_DIR = "models/llm"
 
-    /** True only if a non-empty `.task` bundle exists at one of the known paths. */
+    /** Creates the on-device LLM bound to the resolved (or bundled) model path. */
+    fun create(context: Context): OnDeviceLlm {
+        val ctx = context.applicationContext
+        // 1) A real installed/adb-pushed bundle always wins.
+        firstInstalledTask(ctx)?.let { return AndroidOnDeviceLlm(ctx, it) }
+        // 2) Otherwise, if a `.task` is bundled in assets, target its copy location
+        //    and hand the asset path to the LLM so it materializes on first use.
+        bundledTaskAsset(ctx)?.let { asset ->
+            val target = File(File(ctx.getExternalFilesDir(null), MODEL_SUBDIR), asset.substringAfterLast('/'))
+            return AndroidOnDeviceLlm(ctx, target, bundledAssetPath = asset)
+        }
+        // 3) Nothing available — placeholder so isAvailable reports false cleanly.
+        return AndroidOnDeviceLlm(ctx, resolveModelFile(ctx))
+    }
+
+    /** True if a `.task` is installed at a known path OR bundled in app assets. */
     fun isModelInstalled(context: Context): Boolean =
-        resolveModelFile(context).let { it.exists() && it.length() > 0L }
+        firstInstalledTask(context) != null || bundledTaskAsset(context) != null
+
+    /** The first installed `.task` (external files dir, then the dev path), or null. */
+    private fun firstInstalledTask(context: Context): File? {
+        val externalDir = File(context.getExternalFilesDir(null), MODEL_SUBDIR)
+        firstTaskBundle(externalDir)?.let { return it }
+        return firstTaskBundle(File(DEV_PATH))
+    }
+
+    /** The asset path of a bundled `.task` (e.g. `models/llm/Foo.task`), or null. */
+    private fun bundledTaskAsset(context: Context): String? = try {
+        context.assets.list(BUNDLED_ASSET_DIR)
+            ?.firstOrNull { it.endsWith(MODEL_EXTENSION, ignoreCase = true) }
+            ?.let { "$BUNDLED_ASSET_DIR/$it" }
+    } catch (_: Throwable) {
+        null
+    }
 
     /**
      * Resolves the installed model file: the first non-empty `*.task` bundle in
      * the app external-files model dir wins; otherwise the dev path. Returns a
      * non-existent placeholder in the recommended dir when neither has one (so
-     * [isModelInstalled]/[OnDeviceLlm.isAvailable] report false and error copy
-     * points at the recommended location).
+     * error copy points at the recommended location).
      */
     fun resolveModelFile(context: Context): File {
+        firstInstalledTask(context)?.let { return it }
         val externalDir = File(context.getExternalFilesDir(null), MODEL_SUBDIR)
-        firstTaskBundle(externalDir)?.let { return it }
-        firstTaskBundle(File(DEV_PATH))?.let { return it }
         // Nothing installed: point at a non-existent file in the recommended dir.
         return File(externalDir, "model$MODEL_EXTENSION")
     }

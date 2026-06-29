@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.net.URI
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -29,9 +30,16 @@ android {
         applicationId = "com.personalagent.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 3
-        versionName = "1.1.1-embedfix"
+        versionCode = 4
+        versionName = "1.2.0-bundled"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Sideload build (not Play): ship ONLY arm64-v8a native libs (ONNX Runtime
+        // + MediaPipe) to keep the APK as small as possible now that model weights
+        // are bundled. arm64-v8a covers essentially all modern physical devices.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     signingConfigs {
@@ -52,9 +60,13 @@ android {
     }
 
     androidResources {
-        // Keep the ONNX model uncompressed in the APK so ONNX Runtime can read /
-        // memory-map it efficiently at runtime instead of inflating ~90 MB.
+        // Keep the bundled model weights uncompressed in the APK: the ONNX embedder
+        // and the MediaPipe `.task` LLM are both copied out to internal storage and
+        // read from a file path, so compressing them in the APK would only add a
+        // slow inflate step (and risks the AssetManager compressed-stream limits on
+        // very large files). High-entropy quantized weights barely compress anyway.
         noCompress += "onnx"
+        noCompress += "task"
     }
 
     compileOptions {
@@ -119,43 +131,85 @@ dependencies {
     androidTestImplementation(libs.kotlinx.coroutines.test)
 }
 
-// --- On-device embedding model provisioning ---------------------------------
+// --- Bundled on-device model provisioning -----------------------------------
 //
-// The all-MiniLM-L6-v2 weights (~90 MB) are intentionally NOT committed to git
-// (see .gitignore). Run this task once to fetch the model + vocab into the
-// app's assets so the APK can load them offline at runtime:
+// The model weights are BUNDLED into the APK as assets so the app works out of
+// the box (no download): the all-MiniLM-L6-v2 embedder + a small SmolLM-135M chat
+// model. They are intentionally NOT committed to git (see .gitignore: *.onnx,
+// *.task, **/models/). Provision them once before building:
 //
+//     ./gradlew :androidApp:bundleModels      # both
 //     ./gradlew :androidApp:downloadEmbeddingModel
+//     ./gradlew :androidApp:downloadLlmModel
 //
-// CI / fresh clones without the asset still build fine — the embedder simply
-// reports the model as not installed (EmbedderFactory.isModelInstalled).
+// (or run scripts/fetch-bundled-models.sh). Each download is verified against a
+// pinned sha256. CI / fresh clones without the assets still BUILD fine — the
+// loaders report the model as not installed and the fail-soft paths take over.
+
+/** Download [url] to [dest] (skip if present), then verify its sha256 == [sha256]. */
+fun Task.fetchAndVerify(url: String, dest: File, sha256: String, label: String) {
+    dest.parentFile.mkdirs()
+    if (!(dest.exists() && dest.length() > 0L)) {
+        logger.lifecycle("↓ downloading $label …")
+        URI(url).toURL().openStream().use { input ->
+            dest.outputStream().use { output -> input.copyTo(output) }
+        }
+    }
+    val md = MessageDigest.getInstance("SHA-256")
+    dest.inputStream().use { ins ->
+        val buf = ByteArray(1 shl 16)
+        while (true) { val n = ins.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+    }
+    val got = md.digest().joinToString("") { "%02x".format(it) }
+    require(got == sha256) { "$label sha256 mismatch:\n  expected $sha256\n  got      $got" }
+    logger.lifecycle("✔ $label ok (${dest.length()} bytes, sha256 verified)")
+}
+
 val embeddingModelDir =
     layout.projectDirectory.dir("src/main/assets/models/all-MiniLM-L6-v2").asFile
+val llmModelDir =
+    layout.projectDirectory.dir("src/main/assets/models/llm").asFile
 
 tasks.register("downloadEmbeddingModel") {
     group = "ml"
-    description = "Downloads all-MiniLM-L6-v2 (ONNX model + vocab) into app assets."
-    val base = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main"
-    val files = mapOf(
-        "model.onnx" to "$base/onnx/model.onnx",
-        "vocab.txt" to "$base/vocab.txt",
-    )
-    val outDir = embeddingModelDir
+    description = "Downloads all-MiniLM-L6-v2 (INT8 ONNX + vocab) into app assets."
     doLast {
-        outDir.mkdirs()
-        files.forEach { (name, url) ->
-            val dest = File(outDir, name)
-            if (dest.exists() && dest.length() > 0L) {
-                logger.lifecycle("✔ $name already present (${dest.length()} bytes)")
-                return@forEach
-            }
-            logger.lifecycle("↓ downloading $name from $url")
-            URI(url).toURL().openStream().use { input ->
-                dest.outputStream().use { output -> input.copyTo(output) }
-            }
-            logger.lifecycle("✔ saved ${dest.length()} bytes → $dest")
-        }
+        // Xenova INT8 dynamic-quantized export (~22 MB) — Apache-2.0. I/O matches
+        // AndroidEmbedder: input_ids/attention_mask/token_type_ids → last_hidden_state.
+        fetchAndVerify(
+            "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx",
+            File(embeddingModelDir, "model.onnx"),
+            "afdb6f1a0e45b715d0bb9b11772f032c399babd23bfc31fed1c170afc848bdb1",
+            "all-MiniLM-L6-v2 model.onnx (int8)",
+        )
+        fetchAndVerify(
+            "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/vocab.txt",
+            File(embeddingModelDir, "vocab.txt"),
+            "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+            "all-MiniLM-L6-v2 vocab.txt",
+        )
     }
+}
+
+tasks.register("downloadLlmModel") {
+    group = "ml"
+    description = "Downloads SmolLM-135M-Instruct (MediaPipe .task, q8) into app assets."
+    doLast {
+        // Google litert-community ungated `.task` (~159 MB) — Apache-2.0. Same file
+        // + sha256 as DefaultModelCatalog's smollm-135m entry; loads in MediaPipe.
+        fetchAndVerify(
+            "https://huggingface.co/litert-community/SmolLM-135M-Instruct/resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task",
+            File(llmModelDir, "SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task"),
+            "6987dce5ac4f71032b070cf13412a5de0e49c04d271a053fc7d9d59a0dc104e9",
+            "SmolLM-135M-Instruct .task (q8)",
+        )
+    }
+}
+
+tasks.register("bundleModels") {
+    group = "ml"
+    description = "Fetch + verify ALL bundled on-device models (embedder + chat LLM)."
+    dependsOn("downloadEmbeddingModel", "downloadLlmModel")
 }
 
 // --- On-device LLM model provisioning (Step 3) ------------------------------

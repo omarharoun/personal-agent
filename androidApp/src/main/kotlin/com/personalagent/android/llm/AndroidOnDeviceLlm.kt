@@ -50,6 +50,14 @@ class AndroidOnDeviceLlm internal constructor(
     private val modelFile: File,
     private val maxTokenCapacity: Int = DEFAULT_MAX_TOKEN_CAPACITY,
     private val topK: Int = DEFAULT_TOP_K,
+    /**
+     * Optional APK asset path of a BUNDLED `.task` model (e.g.
+     * `models/llm/SmolLM-…task`). When set and no model is installed at
+     * [modelFile] yet, it is materialized (copied) from assets into [modelFile]
+     * on first use — so the on-device LLM works out of the box on a fresh install
+     * with no download. Copy happens off the main thread (see [ensureEngine]).
+     */
+    private val bundledAssetPath: String? = null,
 ) : OnDeviceLlm {
 
     private val initMutex = Mutex()
@@ -58,7 +66,14 @@ class AndroidOnDeviceLlm internal constructor(
     @Volatile private var engine: LlmInference? = null
 
     override val isAvailable: Boolean
-        get() = modelFile.exists() && modelFile.length() > 0L
+        get() = (modelFile.exists() && modelFile.length() > 0L) ||
+            (bundledAssetPath != null && assetExists(bundledAssetPath))
+
+    private fun assetExists(path: String): Boolean = try {
+        context.assets.open(path).use { true }
+    } catch (_: Throwable) {
+        false
+    }
 
     override suspend fun generate(prompt: String, options: GenOptions): String =
         // Reuse the streaming path so stop/maxTokens semantics are identical.
@@ -120,15 +135,38 @@ class AndroidOnDeviceLlm internal constructor(
         engine?.let { return it }
         return initMutex.withLock {
             engine?.let { return@withLock it }
-            check(isAvailable) {
-                "LLM model not provisioned at ${modelFile.absolutePath} — see LlmModelProvisioning"
+            // If a bundled model asset is configured and nothing is installed yet,
+            // materialize it now (runs on Dispatchers.Default — see generateStream).
+            val resolved = materializeBundledIfNeeded()
+            check(resolved.exists() && resolved.length() > 0L) {
+                "LLM model not provisioned at ${resolved.absolutePath} — see LlmModelProvisioning"
             }
             val options = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(modelFile.absolutePath)
+                .setModelPath(resolved.absolutePath)
                 .setMaxTokens(maxTokenCapacity)
                 .build()
             LlmInference.createFromOptions(context.applicationContext, options).also { engine = it }
         }
+    }
+
+    /**
+     * Copy the bundled `.task` asset into [modelFile] once, if needed. Uses a
+     * temp file + atomic rename so a partial copy is never mistaken for a complete
+     * model. No-op if a model is already present or no asset is bundled.
+     */
+    private fun materializeBundledIfNeeded(): File {
+        if (modelFile.exists() && modelFile.length() > 0L) return modelFile
+        val asset = bundledAssetPath ?: return modelFile
+        modelFile.parentFile?.mkdirs()
+        val tmp = File(modelFile.absolutePath + ".tmp")
+        context.assets.open(asset).use { input ->
+            tmp.outputStream().use { output -> input.copyTo(output, bufferSize = 1 shl 16) }
+        }
+        if (!tmp.renameTo(modelFile)) {
+            tmp.copyTo(modelFile, overwrite = true)
+            tmp.delete()
+        }
+        return modelFile
     }
 
     /** Releases the native engine. Safe to call once when the app is done with it. */
