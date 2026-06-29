@@ -220,8 +220,8 @@ class ConversationViewModel(
         const val NEW_CHAT_TITLE = "New chat"
         private const val DEFAULT_REMINDER_DELAY_MILLIS = 60 * 60_000L // 1 hour
         const val MODEL_UNAVAILABLE_FALLBACK =
-            "I can't answer that yet — there's no AI model running on this device, and no API key is set. " +
-                "Install a model from Settings (the gear, top-right), or add an API key, and I'll be able to chat. " +
+            "No on-device model installed, and no API key is set. " +
+                "Open the menu → Settings to download a model or add an API key, and I'll be able to chat. " +
                 "Notes, reminders, and plans still work right now."
         const val EMPTY_REPLY_FALLBACK =
             "I didn't get any text back that time. Please try again."

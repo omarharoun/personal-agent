@@ -2,6 +2,7 @@ package com.personalagent.shared.conversation
 
 import com.personalagent.shared.cloud.CloudUnavailableException
 import com.personalagent.shared.cloud.FakeCloudClient
+import com.personalagent.shared.memory.Embedder
 import com.personalagent.shared.memory.HashingEmbedder
 import com.personalagent.shared.memory.InMemoryVectorIndex
 import com.personalagent.shared.memory.MemoryService
@@ -23,12 +24,33 @@ private class FakeClock(start: Long = 1_000L) : Clock {
     override fun nowMillis(): Long = t++
 }
 
+/**
+ * An [Embedder] that always throws — stands in for a DEVICE with the on-device
+ * embedding model (`all-MiniLM-L6-v2/model.onnx`) NOT installed. Every embed call
+ * fails, exactly as the missing ONNX file did on the user's phone.
+ */
+private class ThrowingEmbedder(override val dimension: Int = 64) : Embedder {
+    override suspend fun embed(text: String): FloatArray =
+        throw RuntimeException("models/all-MiniLM-L6-v2/model.onnx")
+}
+
 class ConversationServiceTest {
 
     private fun memory(): MemoryService {
         val storage = InMemoryKeyValueStorage()
         return MemoryService(
             HashingEmbedder(),
+            InMemoryVectorIndex(storage),
+            PersistentLocalStore(storage),
+            FakeClock(),
+        )
+    }
+
+    /** A MemoryService whose embedder throws — i.e. no embedding model on device. */
+    private fun memoryWithNoEmbedder(): MemoryService {
+        val storage = InMemoryKeyValueStorage()
+        return MemoryService(
+            ThrowingEmbedder(),
             InMemoryVectorIndex(storage),
             PersistentLocalStore(storage),
             FakeClock(),
@@ -152,6 +174,53 @@ class ConversationServiceTest {
 
         assertEquals("local answer", out)
         assertEquals(0, cloud.callCount, "a normal turn with a local model must stay on-device")
+        assertEquals(1, llm.callCount)
+    }
+
+    @Test
+    fun respond_succeeds_via_cloud_when_embedding_model_is_absent() = runTest {
+        // THE DEVICE BUG: the embedding model (all-MiniLM-L6-v2/model.onnx) is not
+        // installed, so the first step (memory retrieval) threw and aborted the WHOLE
+        // reply — including the cloud path — for a user who only had an API key.
+        // Embeddings are now best-effort: a throwing embedder must NOT block the reply.
+        val cloud = FakeCloudClient(response = "cloud reply despite missing embedder")
+        val svc = ConversationService(
+            llm = FakeOnDeviceLlm(isAvailable = false),
+            memory = memoryWithNoEmbedder(),
+            cloudClient = cloud,
+        )
+
+        val out = svc.respond("hi")
+
+        assertEquals("cloud reply despite missing embedder", out)
+        assertEquals(1, cloud.callCount, "the cloud must still be reached when embeddings fail")
+    }
+
+    @Test
+    fun embedding_failure_surfaces_as_no_provider_error_not_an_onnx_path() = runTest {
+        // On-device selected, no local model, no key, embedder missing: the surfaced
+        // failure must be the clean "no provider/key" one (which the UI renders as
+        // "no model + no key") — NEVER the raw ONNX/embedding model path.
+        val svc = ConversationService(
+            llm = FakeOnDeviceLlm(isAvailable = false),
+            memory = memoryWithNoEmbedder(),
+        )
+
+        val ex = assertFailsWith<CloudUnavailableException> { svc.respond("hi") }
+        assertFalse(
+            (ex.message ?: "").contains("onnx", ignoreCase = true),
+            "must not surface the embedding model path as the failure",
+        )
+    }
+
+    @Test
+    fun local_reply_still_works_when_embedding_model_is_absent() = runTest {
+        // A local chat model present but the embedder missing → answer locally with
+        // no memory/cache grounding (both skipped), never a fatal embedding error.
+        val llm = FakeOnDeviceLlm(isAvailable = true, response = "local reply, no memory")
+        val svc = ConversationService(llm = llm, memory = memoryWithNoEmbedder())
+
+        assertEquals("local reply, no memory", svc.respond("hi"))
         assertEquals(1, llm.callCount)
     }
 

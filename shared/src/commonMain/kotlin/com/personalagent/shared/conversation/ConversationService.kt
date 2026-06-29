@@ -14,6 +14,7 @@ import com.personalagent.shared.cloud.UnavailableCloudClient
 import com.personalagent.shared.memory.MemoryService
 import com.personalagent.shared.model.MemoryEntry
 import com.personalagent.shared.model.MemoryKind
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -95,7 +96,7 @@ class ConversationService(
 
         // Step 6: cache-before-cloud. A strong cache hit grounds a LOCAL answer and
         // short-circuits escalation; only a cache MISS may go to the cloud.
-        val cached = semanticCache.lookup(turn)
+        val cached = cacheLookup(turn)
 
         val reply = if (cached.isEmpty() && routeToCloud(turn, context)) {
             cloudUsageRecorder.recordCloud()
@@ -127,7 +128,7 @@ class ConversationService(
 
         // Step 6: same cache-before-cloud routing as respond(). A strong cache hit
         // keeps the turn local (grounded), so only a cache miss can escalate.
-        val cached = semanticCache.lookup(turn)
+        val cached = cacheLookup(turn)
 
         if (cached.isEmpty() && routeToCloud(turn, context)) {
             cloudUsageRecorder.recordCloud()
@@ -190,8 +191,33 @@ class ConversationService(
         return payloadPrep.rehydrate(cloudAnswer, prepared.mapping)
     }
 
+    /**
+     * Retrieve grounding context — **best-effort**. Memory retrieval needs the
+     * on-device embedding model (`all-MiniLM-L6-v2`); if that model is absent or
+     * the embedder throws, we return NO context and continue. Embeddings are an
+     * enhancement, never a prerequisite — they must never block a reply (the device
+     * bug: a missing embedding model aborted the whole turn, including the cloud
+     * path, for a user who only had an API key).
+     */
     private suspend fun retrieve(turn: String): List<MemoryEntry> =
-        memory.retrieveContext(turn, contextTopK)
+        try {
+            memory.retrieveContext(turn, contextTopK)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            emptyList()
+        }
+
+    /** Semantic-cache lookup — **best-effort** for the same reason as [retrieve]
+     *  (the real cache embeds the query). A miss/failure just means no cache hit. */
+    private suspend fun cacheLookup(turn: String): List<CachedUnderstanding> =
+        try {
+            semanticCache.lookup(turn)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            emptyList()
+        }
 
     /**
      * Fold cached [understandings] into the grounding context, best-first, ahead of
@@ -219,11 +245,23 @@ class ConversationService(
         return grounded + context
     }
 
-    /** Persist the turn so it informs later retrievals. */
+    /**
+     * Persist the turn so it informs later retrievals — **best-effort**. Recording
+     * embeds the text (same embedding model as [retrieve]); if that's unavailable we
+     * skip persistence silently rather than fail a reply the user already received.
+     */
     private suspend fun record(userText: String, reply: String) {
-        memory.recordInteraction(userText, source = SOURCE_USER, kind = MemoryKind.EVENT)
-        if (reply.isNotBlank()) {
-            memory.recordInteraction(reply, source = SOURCE_ASSISTANT, kind = MemoryKind.EVENT)
+        recordSafely(userText, SOURCE_USER)
+        if (reply.isNotBlank()) recordSafely(reply, SOURCE_ASSISTANT)
+    }
+
+    private suspend fun recordSafely(text: String, source: String) {
+        try {
+            memory.recordInteraction(text, source = source, kind = MemoryKind.EVENT)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            // Embedding model absent / embed failed — skip persistence, keep the reply.
         }
     }
 
