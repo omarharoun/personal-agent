@@ -11,8 +11,11 @@ import com.personalagent.shared.cloud.CloudUnavailableException
 import com.personalagent.shared.conversation.ConversationService
 import com.personalagent.shared.util.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -24,6 +27,13 @@ data class Message(
 ) {
     enum class Role { USER, ASSISTANT, SYSTEM }
 }
+
+/** One chat thread in the drawer's history. Title is the first user message. */
+data class ChatSession(
+    val id: Long,
+    val title: String,
+    val messages: List<Message>,
+)
 
 /**
  * Drives the single conversational surface (UX Stream 1). The app no longer has
@@ -46,19 +56,63 @@ class ConversationViewModel(
     private val conversationService: ConversationService,
 ) : ViewModel() {
 
-    private var nextId = 0L
-    private fun newId(): Long = nextId++
+    private var nextMessageId = 0L
+    private var nextSessionId = 1L
 
-    // Starts empty so the surface can show a Claude-style home ("What's on your
-    // mind?" + example prompt chips) until the user sends their first message.
-    private val _messages = MutableStateFlow(emptyList<Message>())
-    val messages: StateFlow<List<Message>> = _messages.asStateFlow()
+    // Multi-chat: an in-memory list of chat sessions for this app run, plus which
+    // one is current. "New chat" adds a session; the drawer lists them by title
+    // (first user message). Persistence across restarts is intentionally not wired
+    // yet — these live for the session, which is enough for the drawer/history UX.
+    private val _sessions = MutableStateFlow(listOf(ChatSession(0L, NEW_CHAT_TITLE, emptyList())))
+    val sessions: StateFlow<List<ChatSession>> = _sessions.asStateFlow()
+
+    private val _currentId = MutableStateFlow(0L)
+    val currentChatId: StateFlow<Long> = _currentId.asStateFlow()
+
+    /** Messages of the currently-selected chat (what the transcript renders). */
+    val messages: StateFlow<List<Message>> =
+        combine(_sessions, _currentId) { sessions, id ->
+            sessions.firstOrNull { it.id == id }?.messages ?: emptyList()
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending.asStateFlow()
 
+    /** Append a message to a SPECIFIC session (so a reply lands in the chat that
+     *  asked, even if the user has since switched chats). Updates the title from
+     *  the first user turn. */
+    private fun appendTo(sessionId: Long, role: Message.Role, text: String) {
+        val mid = nextMessageId++
+        _sessions.update { list ->
+            list.map { sess ->
+                if (sess.id != sessionId) sess
+                else {
+                    val title =
+                        if (sess.title == NEW_CHAT_TITLE && role == Message.Role.USER)
+                            text.take(48).trim()
+                        else sess.title
+                    sess.copy(messages = sess.messages + Message(mid, role, text), title = title)
+                }
+            }
+        }
+    }
+
     private fun append(role: Message.Role, text: String) =
-        _messages.update { it + Message(newId(), role, text) }
+        appendTo(_currentId.value, role, text)
+
+    /** Start a fresh chat (reusing the current one if it's still empty). */
+    fun newChat() {
+        val current = _sessions.value.firstOrNull { it.id == _currentId.value }
+        if (current != null && current.messages.isEmpty()) return
+        val id = nextSessionId++
+        _sessions.update { it + ChatSession(id, NEW_CHAT_TITLE, emptyList()) }
+        _currentId.value = id
+    }
+
+    /** Switch to a previously-started chat. */
+    fun selectChat(id: Long) {
+        if (_sessions.value.any { it.id == id }) _currentId.value = id
+    }
 
     /**
      * Handle one user turn: echo it, route it, and either confirm a saved
@@ -120,32 +174,36 @@ class ConversationViewModel(
      *    message already names the cause (e.g. "API error 401: invalid x-api-key").
      *  - any other Throwable → an on-device model error (e.g. inference failed).
      */
-    private fun ask(text: String) = viewModelScope.launch {
-        _sending.value = true
-        try {
-            val reply = conversationService.respond(text)
-            if (reply.isBlank()) {
-                append(Message.Role.ASSISTANT, EMPTY_REPLY_FALLBACK)
-            } else {
-                append(Message.Role.ASSISTANT, reply.trim())
+    private fun ask(text: String) {
+        // Pin the reply to the chat that asked, even if the user switches mid-flight.
+        val target = _currentId.value
+        viewModelScope.launch {
+            _sending.value = true
+            try {
+                val reply = conversationService.respond(text)
+                if (reply.isBlank()) {
+                    appendTo(target, Message.Role.ASSISTANT, EMPTY_REPLY_FALLBACK)
+                } else {
+                    appendTo(target, Message.Role.ASSISTANT, reply.trim())
+                }
+            } catch (e: CloudUnavailableException) {
+                appendTo(target, Message.Role.ASSISTANT, MODEL_UNAVAILABLE_FALLBACK)
+            } catch (e: CloudException) {
+                appendTo(
+                    target, Message.Role.ASSISTANT,
+                    "I couldn't reach the cloud model: ${e.message ?: "unknown error"}. " +
+                        "Check your connection and your API key in Settings.",
+                )
+            } catch (e: Throwable) {
+                appendTo(
+                    target, Message.Role.ASSISTANT,
+                    "Something went wrong generating a reply: " +
+                        "${e.message ?: e::class.simpleName ?: "unknown error"}. " +
+                        "If you don't have an on-device model, add an API key in Settings.",
+                )
+            } finally {
+                _sending.value = false
             }
-        } catch (e: CloudUnavailableException) {
-            append(Message.Role.ASSISTANT, MODEL_UNAVAILABLE_FALLBACK)
-        } catch (e: CloudException) {
-            append(
-                Message.Role.ASSISTANT,
-                "I couldn't reach the cloud model: ${e.message ?: "unknown error"}. " +
-                    "Check your connection and your API key in Settings (the gear, top-right).",
-            )
-        } catch (e: Throwable) {
-            append(
-                Message.Role.ASSISTANT,
-                "Something went wrong generating a reply: " +
-                    "${e.message ?: e::class.simpleName ?: "unknown error"}. " +
-                    "If you don't have an on-device model, add an API key in Settings.",
-            )
-        } finally {
-            _sending.value = false
         }
     }
 
@@ -159,6 +217,7 @@ class ConversationViewModel(
     }
 
     companion object {
+        const val NEW_CHAT_TITLE = "New chat"
         private const val DEFAULT_REMINDER_DELAY_MILLIS = 60 * 60_000L // 1 hour
         const val MODEL_UNAVAILABLE_FALLBACK =
             "I can't answer that yet — there's no AI model running on this device, and no API key is set. " +

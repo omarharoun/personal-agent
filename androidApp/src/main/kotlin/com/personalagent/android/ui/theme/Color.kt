@@ -3,24 +3,33 @@ package com.personalagent.android.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * Claude-like palette — warm, plain, decluttered. One accent (coral/clay) used
- * sparingly for the primary action; everything else is warm neutrals.
+ * Open-WebUI-style palette — neutral, near-monochrome, dark-first. Surfaces are
+ * cool near-blacks/greys with hairline borders; text is light; the only accent is
+ * a near-white primary action (the modern "white send button on dark" look) plus
+ * a restrained blue for links/selection. The matching light theme inverts to
+ * clean whites/greys.
  */
 
-// --- Core tokens ---
-val Bone = Color(0xFFF0EEE6)        // warm cream/ivory background (light)
-val BoneRaised = Color(0xFFFAF9F5)  // slightly lighter raised surface (cards/input)
-val BoneBorder = Color(0xFFE4E2D9)  // subtle warm border/outline
-val InkNearBlack = Color(0xFF1F1E1D) // warm near-black text
-val InkMuted = Color(0xFF6B6A65)     // muted warm grey for secondary text
+// --- Dark scheme (the default) ----------------------------------------------
+val Gray950 = Color(0xFF0D0D0D) // app background (gray-950)
+val Gray900 = Color(0xFF171717) // sidebar / cards / top bar
+val Gray850 = Color(0xFF1F1F1F) // raised surface / user bubble / code background
+val Gray800 = Color(0xFF2A2A2A) // hairline borders / dividers
+val GrayText = Color(0xFFECECEC) // primary text on dark
+val GrayTextMuted = Color(0xFF9B9B9B) // secondary text on dark
 
-val Coral = Color(0xFFD97757)        // Claude clay/coral accent (primary action)
-val CoralOnDark = Color(0xFFE0896B)  // slightly lifted coral for dark surfaces
-val OnCoral = Color(0xFFFFFFFF)      // text/icon on the coral accent
+// --- Light scheme (matching) ------------------------------------------------
+val White = Color(0xFFFFFFFF) // app background (light)
+val Gray50 = Color(0xFFF7F7F8) // sidebar / cards / top bar (light)
+val Gray100 = Color(0xFFF0F0F2) // raised surface / user bubble / code background (light)
+val Gray200 = Color(0xFFE5E5E5) // hairline borders / dividers (light)
+val InkText = Color(0xFF1A1A1A) // primary text on light
+val InkTextMuted = Color(0xFF6B6B6B) // secondary text on light
 
-// --- Dark scheme tokens ---
-val InkBackground = Color(0xFF1F1E1D) // warm near-black background (dark)
-val InkSurface = Color(0xFF262624)    // raised surface (dark)
-val InkBorder = Color(0xFF3A3A37)     // subtle border (dark)
-val BoneText = Color(0xFFF0EEE6)      // warm off-white text (dark)
-val BoneTextMuted = Color(0xFFAFADA4) // muted text (dark)
+// --- Accents (used sparingly) ------------------------------------------------
+// The primary action is near-monochrome: a near-white pill on dark, near-black on
+// light, so the composer's send button reads as a clean modern control.
+val OnPrimaryDark = Color(0xFF0D0D0D)
+val OnPrimaryLight = Color(0xFFFFFFFF)
+val AccentBlueDark = Color(0xFF6CA0F6)  // links / selection on dark
+val AccentBlueLight = Color(0xFF2563EB) // links / selection on light

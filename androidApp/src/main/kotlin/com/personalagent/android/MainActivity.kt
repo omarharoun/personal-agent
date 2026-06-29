@@ -8,11 +8,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import com.personalagent.android.ui.theme.PersonalAgentTheme
+import com.personalagent.android.ui.theme.ThemeMode
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.personalagent.android.ui.AppScreen
 import com.personalagent.android.ui.AppViewModel
@@ -26,7 +29,27 @@ class MainActivity : ComponentActivity() {
         val container = (application as PersonalAgentApp).container
 
         setContent {
-            PersonalAgentTheme {
+            // Appearance preference (dark by default). Persisted in a tiny prefs file
+            // so the choice survives restarts; read once, then held in state.
+            val ctx = LocalContext.current
+            val uiPrefs = remember { ctx.getSharedPreferences("ui_prefs", MODE_PRIVATE) }
+            var themeMode by remember {
+                mutableStateOf(
+                    runCatching { ThemeMode.valueOf(uiPrefs.getString("theme_mode", null) ?: "DARK") }
+                        .getOrDefault(ThemeMode.DARK),
+                )
+            }
+            val dark = when (themeMode) {
+                ThemeMode.DARK -> true
+                ThemeMode.LIGHT -> false
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+            val onThemeModeChange: (ThemeMode) -> Unit = { mode ->
+                themeMode = mode
+                uiPrefs.edit().putString("theme_mode", mode.name).apply()
+            }
+
+            PersonalAgentTheme(darkTheme = dark) {
                 // Ask for notification permission once (Android 13+/API 33).
                 val permissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
@@ -66,7 +89,7 @@ class MainActivity : ComponentActivity() {
                     // 🔒 Step 7: consent-first crisis-safety surface (autonomous action disabled).
                     val safetyVm: SafetyViewModel =
                         viewModel(factory = SafetyViewModel.Factory(container))
-                    AppScreen(vm, safetyVm, container)
+                    AppScreen(vm, safetyVm, container, themeMode, onThemeModeChange)
                 }
             }
         }
