@@ -80,6 +80,12 @@ class ConversationService(
     private val cloudClient: CloudClient = UnavailableCloudClient,
     private val semanticCache: SemanticCache = NoOpSemanticCache,
     private val cloudUsageRecorder: CloudUsageRecorder = NoOpCloudUsageRecorder,
+    /**
+     * Supplies "What I know about you" facts from the on-device memory graph for
+     * the LOCAL prompt only. Default is no facts. 🔒 Never consulted on the cloud
+     * path — the graph is local-only and is never sent off-device.
+     */
+    private val userFacts: UserFactProvider = NoUserFacts,
 ) {
 
     /**
@@ -109,9 +115,9 @@ class ConversationService(
         } else {
             // Local turn (on-device generation, incl. a semantic-cache hit). The
             // prompt is multi-turn ChatML (persona + memory + recent history + turn)
-            // so the on-device model has short-term conversation memory.
+            // PLUS on-device memory-graph facts — local-only grounding, never cloud.
             cloudUsageRecorder.recordLocal()
-            val prompt = promptBuilder.buildChatMl(turn, ground(context, cached), recent)
+            val prompt = promptBuilder.buildChatMl(turn, ground(context, cached), recent, userFactsSafely(turn))
             llm.generate(prompt, options)
         }
 
@@ -153,7 +159,7 @@ class ConversationService(
 
         // Local turn (on-device streaming, incl. a semantic-cache hit).
         cloudUsageRecorder.recordLocal()
-        val prompt = promptBuilder.buildChatMl(turn, ground(context, cached), recent)
+        val prompt = promptBuilder.buildChatMl(turn, ground(context, cached), recent, userFactsSafely(turn))
 
         val full = StringBuilder()
         llm.generateStream(prompt, options).collect { chunk ->
@@ -234,6 +240,17 @@ class ConversationService(
             emptyList()
         }
 
+    /** On-device memory-graph facts for the LOCAL prompt — best-effort, never fatal
+     *  and never reached on the cloud path. */
+    private suspend fun userFactsSafely(query: String): List<String> =
+        try {
+            userFacts.factsFor(query)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            emptyList()
+        }
+
     /** Semantic-cache lookup — **best-effort** for the same reason as [retrieve]
      *  (the real cache embeds the query). A miss/failure just means no cache hit. */
     private suspend fun cacheLookup(turn: String): List<CachedUnderstanding> =
@@ -304,3 +321,15 @@ class ConversationService(
         const val HISTORY_WINDOW = 10
     }
 }
+
+/**
+ * Supplies on-device memory-graph facts ("What I know about you") for a query.
+ * Implemented by the app over `MemoryGraphService`; the default supplies none.
+ * 🔒 Only ever used to ground the LOCAL model — never sent to the cloud.
+ */
+fun interface UserFactProvider {
+    suspend fun factsFor(query: String): List<String>
+}
+
+/** Default provider: no facts (keeps the service local-only + test-simple). */
+val NoUserFacts: UserFactProvider = UserFactProvider { emptyList() }

@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -84,7 +85,7 @@ import com.personalagent.shared.cloud.CloudProvider
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
-private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES }
+private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES, MEMORY }
 
 /**
  * The app shell — an Open-WebUI-style chat surface: a slide-out navigation drawer
@@ -133,6 +134,7 @@ fun AppScreen(
                 onNewChat = { convoVm.newChat(); surface = Surface.CONVERSATION; closeDrawer() },
                 onSelectChat = { id -> convoVm.selectChat(id); surface = Surface.CONVERSATION; closeDrawer() },
                 onOpenNotes = { surface = Surface.NOTES; closeDrawer() },
+                onOpenMemory = { surface = Surface.MEMORY; closeDrawer() },
                 onOpenSettings = { surface = Surface.SETTINGS; closeDrawer() },
                 onOpenSupport = { surface = Surface.SUPPORT; closeDrawer() },
             )
@@ -147,6 +149,9 @@ fun AppScreen(
             }
             Surface.NOTES -> SubScreen("Notes", { surface = Surface.CONVERSATION }, snackbar) {
                 NotesScreen(appState, vm)
+            }
+            Surface.MEMORY -> SubScreen("Memory", { surface = Surface.CONVERSATION }, snackbar) {
+                MemoryScreen(container)
             }
             Surface.CONVERSATION -> ConversationContent(
                 convoVm = convoVm,
@@ -167,6 +172,7 @@ private fun AppDrawer(
     onNewChat: () -> Unit,
     onSelectChat: (Long) -> Unit,
     onOpenNotes: () -> Unit,
+    onOpenMemory: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSupport: () -> Unit,
 ) {
@@ -234,6 +240,12 @@ private fun AppDrawer(
                 label = { Text("Notes") },
                 selected = currentSurface == Surface.NOTES,
                 onClick = onOpenNotes,
+            )
+            NavigationDrawerItem(
+                icon = { Icon(Icons.Filled.Psychology, null) },
+                label = { Text("Memory") },
+                selected = currentSurface == Surface.MEMORY,
+                onClick = onOpenMemory,
             )
             NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.FavoriteBorder, null) },

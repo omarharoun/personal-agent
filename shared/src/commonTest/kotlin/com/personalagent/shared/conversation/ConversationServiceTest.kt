@@ -293,6 +293,40 @@ class ConversationServiceTest {
     }
 
     @Test
+    fun local_prompt_injects_memory_graph_facts() = runTest {
+        // echo() returns the assembled prompt so we can assert the facts block.
+        val svc = ConversationService(
+            llm = FakeOnDeviceLlm.echo(),
+            memory = memory(),
+            userFacts = { listOf("You prefer mornings", "You have a sister named Sarah") },
+        )
+
+        val prompt = svc.respond("what should I plan today?")
+
+        assertTrue(prompt.contains(PromptBuilder.SECTION_USER_FACTS), "the 'What I know about you:' block must be present")
+        assertTrue(prompt.contains("You prefer mornings"))
+        assertTrue(prompt.contains("sister named Sarah"))
+    }
+
+    @Test
+    fun cloud_path_never_includes_memory_graph_facts() = runTest {
+        // No local model → escalate. The graph facts must NOT reach the cloud.
+        val cloud = FakeCloudClient(response = "ok")
+        val svc = ConversationService(
+            llm = FakeOnDeviceLlm(isAvailable = false),
+            memory = memory(),
+            cloudClient = cloud,
+            userFacts = { listOf("SECRET_GRAPH_FACT_XYZ") },
+        )
+
+        svc.respond("hello")
+
+        val sentToCloud = (cloud.lastMessages?.joinToString(" ") { it.content } ?: "") + " " + (cloud.lastSystem ?: "")
+        assertFalse(sentToCloud.contains("SECRET_GRAPH_FACT_XYZ"), "the local memory graph must never be sent to the cloud")
+        assertEquals(PromptBuilder.DEFAULT_PERSONA, cloud.lastSystem, "cloud system is the persona only")
+    }
+
+    @Test
     fun blank_input_returns_empty_and_records_nothing() = runTest {
         val mem = memory()
         val llm = FakeOnDeviceLlm()

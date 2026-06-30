@@ -10,6 +10,10 @@ import com.personalagent.shared.cloud.HttpCloudClient
 import com.personalagent.shared.cloud.UnavailableCloudClient
 import com.personalagent.shared.conversation.ConversationService
 import com.personalagent.shared.conversation.GenOptions
+import com.personalagent.shared.conversation.UserFactProvider
+import com.personalagent.shared.graph.CompositeMemoryExtractor
+import com.personalagent.shared.graph.MemoryGraphService
+import com.personalagent.shared.graph.PersistentMemoryGraphStore
 import com.personalagent.shared.crypto.IosNativeKeyStore
 import com.personalagent.shared.crypto.IosSecretKeyProvider
 import com.personalagent.shared.crypto.SecretKeyProvider
@@ -149,12 +153,32 @@ object IosFactories {
         embedder: Embedder,
         crypto: SecretKeyProvider,
         cloudConfig: CloudConfig?,
+        // 🔒 On-device memory graph for LOCAL grounding only (never sent to cloud).
+        // Optional so existing callers are unaffected; pass [createMemoryGraph].
+        memoryGraph: MemoryGraphService? = null,
     ): ConversationService = ConversationService(
         llm = llm,
         memory = createMemoryService(store, embedder, crypto),
         escalationPolicy = HeuristicEscalationPolicy(),
         payloadPrep = DefaultPayloadPrep(),
         cloudClient = cloudConfig?.let { HttpCloudClient(it) } ?: UnavailableCloudClient,
+        userFacts = memoryGraph?.let { g -> UserFactProvider { g.retrieveFacts(it) } }
+            ?: com.personalagent.shared.conversation.NoUserFacts,
+    )
+
+    /**
+     * 🔒 On-device memory GRAPH for iOS — sealed at rest with the same [crypto] and
+     * NEVER sent to the cloud. Extraction uses the on-device [llm] (heuristic
+     * fallback) + the [embedder] for similarity dedup.
+     */
+    fun createMemoryGraph(
+        embedder: Embedder,
+        llm: OnDeviceLlm,
+        crypto: SecretKeyProvider,
+    ): MemoryGraphService = MemoryGraphService(
+        store = PersistentMemoryGraphStore(EncryptedKeyValueStorage(IosKeyValueStorage("memory_graph"), crypto)),
+        embedder = embedder,
+        extractor = CompositeMemoryExtractor(llm),
     )
 
     /**
@@ -185,6 +209,8 @@ object IosFactories {
         embedder: Embedder,
         crypto: SecretKeyProvider,
         cloudKeyStore: CloudKeyStore,
+        // 🔒 On-device memory graph for LOCAL grounding only (never sent to cloud).
+        memoryGraph: MemoryGraphService? = null,
     ): ConversationService {
         // 🔧 Re-resolve the BYO key per use so a newly-saved key takes effect with
         // no app restart (mirrors Android). Reads from the encrypted store each time.
@@ -195,6 +221,8 @@ object IosFactories {
             escalationPolicy = HeuristicEscalationPolicy(),
             payloadPrep = DefaultPayloadPrep(),
             cloudClient = cloudClient,
+            userFacts = memoryGraph?.let { g -> UserFactProvider { g.retrieveFacts(it) } }
+                ?: com.personalagent.shared.conversation.NoUserFacts,
         )
     }
 

@@ -48,6 +48,7 @@ class PromptBuilder(
         userText: String,
         context: List<MemoryEntry>,
         history: List<ConversationTurn> = emptyList(),
+        userFacts: List<String> = emptyList(),
     ): String = buildString {
         append(IM_START).append("system\n")
         append(persona.trim()).append("\n\n")
@@ -57,6 +58,12 @@ class PromptBuilder(
         } else {
             for (entry in context) append("- ").append(entry.content.trim()).append('\n')
             deleteAt(length - 1) // drop trailing newline from the loop
+        }
+        // On-device memory graph grounding (LOCAL only — never sent to the cloud).
+        if (userFacts.isNotEmpty()) {
+            append("\n\n").append(SECTION_USER_FACTS).append('\n')
+            for (fact in userFacts) append("- ").append(fact.trim()).append('\n')
+            deleteAt(length - 1)
         }
         append(IM_END).append('\n')
 
@@ -118,6 +125,7 @@ class PromptBuilder(
 
         const val SECTION_SYSTEM = "[System]"
         const val SECTION_CONTEXT = "[Relevant memory]"
+        const val SECTION_USER_FACTS = "What I know about you:"
         const val SECTION_USER = "[User]"
         const val SECTION_ASSISTANT = "[Assistant]"
         const val NO_CONTEXT = "(no relevant memory)"

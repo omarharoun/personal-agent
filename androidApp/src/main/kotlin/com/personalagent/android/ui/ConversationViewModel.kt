@@ -11,7 +11,9 @@ import com.personalagent.shared.cloud.CloudUnavailableException
 import com.personalagent.shared.conversation.ChatRole
 import com.personalagent.shared.conversation.ConversationService
 import com.personalagent.shared.conversation.ConversationTurn
+import com.personalagent.shared.graph.MemoryGraphService
 import com.personalagent.shared.util.SystemClock
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +58,7 @@ data class ChatSession(
 class ConversationViewModel(
     private val appVm: AppViewModel,
     private val conversationService: ConversationService,
+    private val memoryGraph: MemoryGraphService,
 ) : ViewModel() {
 
     private var nextMessageId = 0L
@@ -210,6 +213,9 @@ class ConversationViewModel(
                     appendTo(target, Message.Role.ASSISTANT, EMPTY_REPLY_FALLBACK)
                 } else {
                     appendTo(target, Message.Role.ASSISTANT, reply.trim())
+                    // Learn about the user from this exchange — AFTER the reply is
+                    // shown, off the main thread, best-effort (never blocks/breaks chat).
+                    ingestMemory(text, reply.trim(), target)
                 }
             } catch (e: CloudUnavailableException) {
                 appendTo(target, Message.Role.ASSISTANT, MODEL_UNAVAILABLE_FALLBACK)
@@ -229,6 +235,13 @@ class ConversationViewModel(
             } finally {
                 _sending.value = false
             }
+        }
+    }
+
+    /** Extract + merge memory about the user from one exchange, off the main thread. */
+    private fun ingestMemory(userText: String, replyText: String, chatId: Long) {
+        viewModelScope.launch(Dispatchers.Default) {
+            runCatching { memoryGraph.ingest(userText, replyText, chatId.toString()) }
         }
     }
 
@@ -259,6 +272,6 @@ class ConversationViewModel(
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            ConversationViewModel(appVm, container.conversationService) as T
+            ConversationViewModel(appVm, container.conversationService, container.memoryGraph) as T
     }
 }

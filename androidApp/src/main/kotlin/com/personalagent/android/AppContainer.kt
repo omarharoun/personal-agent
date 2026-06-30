@@ -234,6 +234,26 @@ class AppContainer(
      * safe: it minimizes/tokenizes before anything would leave the device, and with
      * cloud off an escalation fails loudly rather than leaking.
      */
+    /**
+     * 🔒 On-device memory GRAPH (items about the user) — sealed at rest by the same
+     * encrypted [KeyValueStorage] as everything else, and NEVER sent to the cloud.
+     * It grounds the on-device model and is fully user-editable/exportable via the
+     * Memory screen. Extraction uses the active LLM (with a heuristic fallback) and
+     * the bundled embedder for similarity dedup.
+     */
+    val memoryGraphStore: com.personalagent.shared.graph.MemoryGraphStore by lazy {
+        com.personalagent.shared.graph.PersistentMemoryGraphStore(encrypted("memory_graph"))
+    }
+
+    val memoryGraph: com.personalagent.shared.graph.MemoryGraphService by lazy {
+        com.personalagent.shared.graph.MemoryGraphService(
+            store = memoryGraphStore,
+            embedder = embedder,
+            extractor = com.personalagent.shared.graph.CompositeMemoryExtractor(llm),
+            clock = SystemClock,
+        )
+    }
+
     val conversationService: ConversationService by lazy {
         ConversationService(
             llm = llm,
@@ -241,6 +261,8 @@ class AppContainer(
             escalationPolicy = HeuristicEscalationPolicy(),
             payloadPrep = DefaultPayloadPrep(),
             cloudClient = cloudClient,
+            // 🔒 Local-only grounding from the on-device memory graph.
+            userFacts = com.personalagent.shared.conversation.UserFactProvider { memoryGraph.retrieveFacts(it) },
         )
     }
 }

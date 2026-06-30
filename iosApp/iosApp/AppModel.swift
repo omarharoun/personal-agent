@@ -124,6 +124,11 @@ final class AppModel: ObservableObject {
                 appendMessage(.assistant, "I didn't get any text back that time. Please try again.")
             } else {
                 appendMessage(.assistant, trimmed)
+                // Learn about the user from this exchange — after the reply, best-effort.
+                let graph = memoryGraph
+                Task.detached(priority: .background) {
+                    _ = try? await graph?.ingest(userText: text, assistantText: trimmed, chatId: nil)
+                }
             }
         } catch {
             // KMP surfaces CloudUnavailableException / CloudException as NSError
@@ -176,6 +181,8 @@ final class AppModel: ObservableObject {
     private var embedder: Embedder!
     private var llm: OnDeviceLlm!
     private var conversationService: ConversationService!
+    /// 🔒 On-device memory graph (encrypted, never sent to cloud). Exposed for the Memory screen.
+    private(set) var memoryGraph: MemoryGraphService!
     /// BYO-key cloud wallet (Stream 3). Exposed so the Settings cloud section can
     /// read/write provider keys; keys are stored encrypted, never in plaintext.
     private(set) var cloudKeyStore: CloudKeyStore!
@@ -303,12 +310,20 @@ final class AppModel: ObservableObject {
         self.cloudKeyStore = IosFactories.shared.createCloudKeyStore(crypto: crypto)
         // Derive the cloud client from the user's BYO-key selection; with no key
         // set it stays UnavailableCloudClient → fully on-device.
+        // 🔒 On-device memory graph (encrypted, never sent to cloud) — grounds the
+        // local model and powers the Memory screen.
+        self.memoryGraph = IosFactories.shared.createMemoryGraph(
+            embedder: embedder,
+            llm: llm,
+            crypto: crypto
+        )
         self.conversationService = IosFactories.shared.createConversationService(
             llm: llm,
             store: store,
             embedder: embedder,
             crypto: crypto,
-            cloudKeyStore: cloudKeyStore
+            cloudKeyStore: cloudKeyStore,
+            memoryGraph: memoryGraph
         )
         self.clock = IosFactories.shared.systemClock()
         self.modelProvisioner = IosFactories.shared.createModelProvisioner(native: IosModelProvisioner())
