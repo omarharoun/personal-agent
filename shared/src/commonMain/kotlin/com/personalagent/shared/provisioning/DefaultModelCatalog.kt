@@ -27,7 +27,10 @@ package com.personalagent.shared.provisioning
  * All three entries are **ungated** and permissively licensed (Apache-2.0). Their
  * checksums are pinned, so the default onboarding path — pick → download → verify
  * → install → load — works end-to-end with no account, token, or license click.
- * [DEFAULT] points at the smallest (SmolLM 135M).
+ * The chat model is **download-on-demand** (no longer bundled in the APK); only the
+ * small ONNX embedder is bundled. [DEFAULT] suggests Qwen2.5-0.5B — a genuinely
+ * usable assistant at a modest (~0.5 GB) download — with a tiny SmolLM-135M for
+ * low-end devices and a stronger Qwen2.5-1.5B for those who want more.
  *
  * The provisioner still **fails closed** on any unpinned/mismatched checksum (the
  * [UNPINNED_SHA256] sentinel + the Sha256 verifier remain in the codebase); the
@@ -38,10 +41,11 @@ class DefaultModelCatalog : ModelCatalog {
 
     companion object {
         /**
-         * The recommended default: smallest ungated model, so first-run onboarding
-         * downloads the least and still lights up the on-device AI features.
+         * The recommended default: a genuinely usable small assistant at a modest
+         * download (~0.5 GB), ungated + checksum-pinned. Users can pick the tiny
+         * SmolLM-135M for low-end devices or the stronger Qwen2.5-1.5B instead.
          */
-        val DEFAULT: ModelOption get() = CATALOG.first { it.id == "smollm-135m-instruct-task-q8" }
+        val DEFAULT: ModelOption get() = CATALOG.first { it.id == "qwen2.5-0.5b-instruct-task-q8" }
 
         // Checksums + sizes below are the publisher's own Git-LFS `oid sha256:` /
         // `size`, pinned from each repo's `…/raw/main/…` pointer. The `url` is the
@@ -58,7 +62,7 @@ class DefaultModelCatalog : ModelCatalog {
                 licenseName = "Apache-2.0",
                 licenseUrl = "https://huggingface.co/litert-community/SmolLM-135M-Instruct",
                 requiresProviderAuth = false,
-                note = "Smallest default — ~159 MB, no account or token needed. Loads in the on-device MediaPipe runtime. Great for low-end devices.",
+                note = "Smallest — ~159 MB, no account or token needed. Best for low-end devices; replies are basic. Loads in the on-device MediaPipe runtime.",
             ),
             ModelOption(
                 id = "qwen2.5-0.5b-instruct-task-q8",
@@ -70,19 +74,19 @@ class DefaultModelCatalog : ModelCatalog {
                 licenseName = "Apache-2.0",
                 licenseUrl = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct",
                 requiresProviderAuth = false,
-                note = "~521 MB, ungated. Stronger than SmolLM at a larger size. Loads in the on-device MediaPipe runtime.",
+                note = "Recommended default — ~521 MB, ungated. A genuinely usable little assistant; a good balance of quality and size. Loads in the on-device MediaPipe runtime.",
             ),
             ModelOption(
-                id = "tinyllama-1.1b-chat-task-q8",
-                displayName = "TinyLlama 1.1B Chat v1.0 (MediaPipe .task, q8)",
-                sizeBytes = 1_148_331_545L,
-                url = "https://huggingface.co/litert-community/TinyLlama-1.1B-Chat-v1.0/resolve/main/TinyLlama-1.1B-Chat-v1.0_multi-prefill-seq_q8_ekv1280.task",
-                sha256 = "0f09dc7f792bb8d49b6629effaee3ed1a99e4506b082cd353471bdf391dee053",
+                id = "qwen2.5-1.5b-instruct-task-q8",
+                displayName = "Qwen2.5 1.5B Instruct (MediaPipe .task, q8)",
+                sizeBytes = 1_597_913_616L,
+                url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
+                sha256 = "8d867a7c93a6acf2892f08e0174e2f6f351ad256b7e3cfb6d6cd9c89794b42e0",
                 quant = "q8",
                 licenseName = "Apache-2.0",
-                licenseUrl = "https://huggingface.co/litert-community/TinyLlama-1.1B-Chat-v1.0",
+                licenseUrl = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct",
                 requiresProviderAuth = false,
-                note = "~1.07 GB, ungated. Most capable of the three; largest download. Loads in the on-device MediaPipe runtime.",
+                note = "Most capable — ~1.49 GB, ungated. Best replies of the three; largest download, needs a newer phone with enough RAM. Loads in the on-device MediaPipe runtime.",
             ),
         )
     }

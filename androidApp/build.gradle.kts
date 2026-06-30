@@ -30,8 +30,8 @@ android {
         applicationId = "com.personalagent.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 5
-        versionName = "1.2.1-chatmlfix"
+        versionCode = 6
+        versionName = "1.3.0-ondemand"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Sideload build (not Play): ship ONLY arm64-v8a native libs (ONNX Runtime
@@ -133,14 +133,15 @@ dependencies {
 
 // --- Bundled on-device model provisioning -----------------------------------
 //
-// The model weights are BUNDLED into the APK as assets so the app works out of
-// the box (no download): the all-MiniLM-L6-v2 embedder + a small SmolLM-135M chat
-// model. They are intentionally NOT committed to git (see .gitignore: *.onnx,
-// *.task, **/models/). Provision them once before building:
+// ONLY the small all-MiniLM-L6-v2 ONNX embedder is BUNDLED into the APK (so memory
+// /search works out of the box). The CHAT model is download-on-demand in-app (the
+// user picks one from DefaultModelCatalog in Settings → it downloads + verifies +
+// installs) — it is NOT bundled, keeping the APK small. Weights are NOT committed
+// to git (see .gitignore: *.onnx, *.task, **/models/). Provision the embedder once
+// before building:
 //
-//     ./gradlew :androidApp:bundleModels      # both
-//     ./gradlew :androidApp:downloadEmbeddingModel
-//     ./gradlew :androidApp:downloadLlmModel
+//     ./gradlew :androidApp:bundleModels          # the embedder
+//     ./gradlew :androidApp:downloadEmbeddingModel # (same thing)
 //
 // (or run scripts/fetch-bundled-models.sh). Each download is verified against a
 // pinned sha256. CI / fresh clones without the assets still BUILD fine — the
@@ -167,8 +168,6 @@ fun Task.fetchAndVerify(url: String, dest: File, sha256: String, label: String) 
 
 val embeddingModelDir =
     layout.projectDirectory.dir("src/main/assets/models/all-MiniLM-L6-v2").asFile
-val llmModelDir =
-    layout.projectDirectory.dir("src/main/assets/models/llm").asFile
 
 tasks.register("downloadEmbeddingModel") {
     group = "ml"
@@ -191,25 +190,11 @@ tasks.register("downloadEmbeddingModel") {
     }
 }
 
-tasks.register("downloadLlmModel") {
-    group = "ml"
-    description = "Downloads SmolLM-135M-Instruct (MediaPipe .task, q8) into app assets."
-    doLast {
-        // Google litert-community ungated `.task` (~159 MB) — Apache-2.0. Same file
-        // + sha256 as DefaultModelCatalog's smollm-135m entry; loads in MediaPipe.
-        fetchAndVerify(
-            "https://huggingface.co/litert-community/SmolLM-135M-Instruct/resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task",
-            File(llmModelDir, "SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task"),
-            "6987dce5ac4f71032b070cf13412a5de0e49c04d271a053fc7d9d59a0dc104e9",
-            "SmolLM-135M-Instruct .task (q8)",
-        )
-    }
-}
-
 tasks.register("bundleModels") {
     group = "ml"
-    description = "Fetch + verify ALL bundled on-device models (embedder + chat LLM)."
-    dependsOn("downloadEmbeddingModel", "downloadLlmModel")
+    description = "Fetch + verify the bundled on-device model(s). Embedder ONLY — the " +
+        "chat LLM is download-on-demand in-app (DefaultModelCatalog), not bundled."
+    dependsOn("downloadEmbeddingModel")
 }
 
 // --- On-device LLM model provisioning (Step 3) ------------------------------

@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
-# Fetch + verify the on-device model weights BUNDLED into the Android APK.
+# Fetch + verify the on-device embedding model BUNDLED into the Android APK.
+#
+# Only the small ONNX embedder is bundled (so memory/search works out of the box).
+# The CHAT model is download-on-demand in-app (Settings → pick a model from the
+# catalog), NOT bundled — so it is not fetched here.
 #
 # These files are deliberately NOT committed to git (.gitignore: *.onnx, *.task,
 # **/models/). Run this once after cloning, before building the Android app, so the
-# bundled-model assets exist. Each file is verified against a pinned sha256.
+# bundled embedder asset exists. Each file is verified against a pinned sha256.
 #
 #   ./scripts/fetch-bundled-models.sh
 #
 # Equivalent Gradle path: ./gradlew :androidApp:bundleModels
 #
-# Models (both ungated, Apache-2.0):
+# Bundled (ungated, Apache-2.0):
 #   - all-MiniLM-L6-v2  INT8 ONNX embedder (~22 MB) + bert-base-uncased vocab
-#   - SmolLM-135M-Instruct  MediaPipe .task chat model, q8 (~159 MB)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 EMB="$ROOT/androidApp/src/main/assets/models/all-MiniLM-L6-v2"
-LLM="$ROOT/androidApp/src/main/assets/models/llm"
-mkdir -p "$EMB" "$LLM"
+mkdir -p "$EMB"
 
 fetch() { # url dest sha256 label
   local url="$1" dest="$2" sha="$3" label="$4"
@@ -46,9 +48,4 @@ fetch "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/vocab.txt" \
   "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3" \
   "all-MiniLM-L6-v2 vocab.txt"
 
-fetch "https://huggingface.co/litert-community/SmolLM-135M-Instruct/resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task" \
-  "$LLM/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task" \
-  "6987dce5ac4f71032b070cf13412a5de0e49c04d271a053fc7d9d59a0dc104e9" \
-  "SmolLM-135M-Instruct .task (q8)"
-
-echo "All bundled models present + verified."
+echo "Bundled embedder present + verified. (Chat model is download-on-demand in-app.)"

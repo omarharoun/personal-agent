@@ -16,16 +16,16 @@ class DefaultModelCatalogTest {
     private val catalog = DefaultModelCatalog().options()
 
     @Test
-    fun has_three_ungated_task_entries_with_smollm_default() {
+    fun has_three_ungated_task_entries_with_qwen_05b_default() {
         assertEquals(3, catalog.size, "catalog should have exactly three curated entries")
         assertTrue(
             catalog.none { it.requiresProviderAuth },
             "no entry may require provider auth — every model must be fetchable",
         )
         assertEquals(
-            "smollm-135m-instruct-task-q8",
+            "qwen2.5-0.5b-instruct-task-q8",
             DefaultModelCatalog.DEFAULT.id,
-            "DEFAULT must be the smallest ungated model",
+            "DEFAULT must be the recommended ungated balance (Qwen2.5-0.5B)",
         )
     }
 
