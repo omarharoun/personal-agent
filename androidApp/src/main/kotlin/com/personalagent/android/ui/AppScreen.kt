@@ -11,8 +11,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -320,6 +324,10 @@ private fun ConversationContent(
         },
         snackbarHost = { SnackbarHost(snackbar) },
         containerColor = MaterialTheme.colorScheme.background,
+        // Scaffold owns ONLY the top inset (status bar); the composer owns the
+        // bottom (ime ∪ navigation bar). Otherwise the default systemBars insets
+        // would re-apply the nav-bar inset to this Column AND the composer.
+        contentWindowInsets = WindowInsets.statusBars,
     ) { inner ->
         Column(Modifier.fillMaxSize().padding(inner)) {
             if (messages.isEmpty()) {
@@ -473,9 +481,13 @@ private fun Composer(
         Box(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-                .navigationBarsPadding()
-                .imePadding(),
+                // Sit flush above the keyboard when it's open, and above the nav bar
+                // when it's closed — the UNION (max per side) of the IME and
+                // navigation-bar insets, NOT their sum. Summing them (the old bug:
+                // navigationBarsPadding() + imePadding()) double-counted the nav-bar
+                // height on top of the keyboard, leaving a black gap above the IME.
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
             Surface(
                 shape = RoundedCornerShape(26.dp),

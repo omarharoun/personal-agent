@@ -30,8 +30,8 @@ android {
         applicationId = "com.personalagent.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 7
-        versionName = "1.4.0-convo-memory"
+        versionCode = 8
+        versionName = "1.4.1-ime-inset"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Sideload build (not Play): ship ONLY arm64-v8a native libs (ONNX Runtime
