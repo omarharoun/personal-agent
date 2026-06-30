@@ -27,11 +27,29 @@ class FakeCloudClient(
     var callCount: Int = 0
         private set
 
+    /** The structured conversation captured from the last [completeConversation]. */
+    var lastMessages: List<CloudMessage>? = null
+        private set
+    var lastSystem: String? = null
+        private set
+
     override suspend fun complete(prompt: String, options: GenOptions): String {
         lastPrompt = prompt
         lastOptions = options
         callCount++
         receivedPrompts += prompt
         return respondWith?.invoke(prompt, options) ?: response
+    }
+
+    override suspend fun completeConversation(
+        messages: List<CloudMessage>,
+        system: String?,
+        options: GenOptions,
+    ): String {
+        lastMessages = messages
+        lastSystem = system
+        // Delegate so callCount / lastPrompt / receivedPrompts are recorded once,
+        // exactly as the single-prompt path does.
+        return complete(messages.lastOrNull()?.content ?: "", options)
     }
 }

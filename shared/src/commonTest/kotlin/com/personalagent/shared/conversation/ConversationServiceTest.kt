@@ -225,6 +225,74 @@ class ConversationServiceTest {
     }
 
     @Test
+    fun local_followup_carries_prior_turns_as_chatml() = runTest {
+        // THE MEMORY BUG: a "yes" follow-up must see the prior turns. echo() returns
+        // the exact prompt the model received, so we can assert what was assembled.
+        val llm = FakeOnDeviceLlm.echo()
+        val svc = ConversationService(llm, memory())
+        val history = listOf(
+            ConversationTurn(ChatRole.USER, "Give me 3 dinner ideas"),
+            ConversationTurn(ChatRole.ASSISTANT, "1. Pasta 2. Tacos 3. Stir-fry"),
+        )
+
+        val prompt = svc.respond("yes", history)
+
+        // ChatML multi-turn with the prior turns, in order, ending in the open turn.
+        assertTrue(prompt.startsWith("<|im_start|>system"), "must be ChatML")
+        assertTrue(prompt.contains(PromptBuilder.DEFAULT_PERSONA.substring(0, 20)), "persona in system")
+        val iQ = prompt.indexOf("Give me 3 dinner ideas")
+        val iA = prompt.indexOf("1. Pasta")
+        val iCur = prompt.lastIndexOf("yes")
+        assertTrue(iQ in 0 until iA && iA < iCur, "prior turns must precede the current turn, in order")
+        assertTrue(prompt.trimEnd().endsWith("<|im_start|>assistant"), "opens an assistant turn")
+    }
+
+    @Test
+    fun cloud_sends_history_as_messages_array_and_persona_as_system() = runTest {
+        val cloud = FakeCloudClient(response = "ok")
+        val svc = ConversationService(
+            llm = FakeOnDeviceLlm(isAvailable = false),
+            memory = memory(),
+            cloudClient = cloud,
+        )
+        val history = listOf(
+            ConversationTurn(ChatRole.USER, "Give me 3 dinner ideas"),
+            ConversationTurn(ChatRole.ASSISTANT, "1. Pasta 2. Tacos 3. Stir-fry"),
+        )
+
+        svc.respond("yes", history)
+
+        val msgs = assertNotNull(cloud.lastMessages, "cloud must receive a messages array")
+        assertEquals(3, msgs.size, "history (2) + current (1)")
+        assertEquals(ChatRole.USER, msgs[0].role)
+        assertEquals("Give me 3 dinner ideas", msgs[0].content)
+        assertEquals(ChatRole.ASSISTANT, msgs[1].role)
+        assertEquals(ChatRole.USER, msgs[2].role)
+        assertEquals("yes", msgs[2].content)
+        assertEquals(PromptBuilder.DEFAULT_PERSONA, cloud.lastSystem, "persona sent as system")
+    }
+
+    @Test
+    fun conversation_history_is_bounded_to_the_window() = runTest {
+        val cloud = FakeCloudClient()
+        val svc = ConversationService(
+            llm = FakeOnDeviceLlm(isAvailable = false),
+            memory = memory(),
+            cloudClient = cloud,
+        )
+        val many = (1..20).map {
+            ConversationTurn(if (it % 2 == 1) ChatRole.USER else ChatRole.ASSISTANT, "turn$it")
+        }
+
+        svc.respond("now", many)
+
+        val msgs = assertNotNull(cloud.lastMessages)
+        assertEquals(ConversationService.HISTORY_WINDOW + 1, msgs.size, "windowed history + current")
+        assertEquals("turn11", msgs.first().content, "oldest kept is the 11th of 20 (last 10)")
+        assertEquals("now", msgs.last().content)
+    }
+
+    @Test
     fun blank_input_returns_empty_and_records_nothing() = runTest {
         val mem = memory()
         val llm = FakeOnDeviceLlm()

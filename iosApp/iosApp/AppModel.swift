@@ -109,7 +109,16 @@ final class AppModel: ObservableObject {
             return
         }
         do {
-            let reply = try await conversationService.respond(userText: text)
+            // Short-term memory: prior USER/ASSISTANT turns of this chat (oldest
+            // first), excluding the current user turn just appended by send().
+            let history: [ConversationTurn] = Array(
+                messages.filter { $0.role == .user || $0.role == .assistant }.dropLast()
+            ).map {
+                ConversationTurn(
+                    role: $0.role == .user ? ChatRole.user : ChatRole.assistant,
+                    text: $0.text)
+            }
+            let reply = try await conversationService.respond(userText: text, history: history)
             let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
                 appendMessage(.assistant, "I didn't get any text back that time. Please try again.")

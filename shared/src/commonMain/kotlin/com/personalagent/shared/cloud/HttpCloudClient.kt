@@ -1,5 +1,6 @@
 package com.personalagent.shared.cloud
 
+import com.personalagent.shared.conversation.ChatRole
 import com.personalagent.shared.conversation.GenOptions
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
@@ -139,17 +140,37 @@ class HttpCloudClient(
         }
     }
 
+    // The single-prompt entry point is just a one-message conversation with no
+    // system prompt, so all transport logic lives in completeConversation().
     override suspend fun complete(prompt: String, options: GenOptions): String =
-        when (provider) {
-            CloudProvider.OPENAI -> completeOpenAi(prompt, options)
-            CloudProvider.ANTHROPIC -> completeAnthropic(prompt, options)
-        }
+        completeConversation(listOf(CloudMessage(ChatRole.USER, prompt)), system = null, options)
+
+    override suspend fun completeConversation(
+        messages: List<CloudMessage>,
+        system: String?,
+        options: GenOptions,
+    ): String = when (provider) {
+        CloudProvider.OPENAI -> completeOpenAi(messages, system, options)
+        CloudProvider.ANTHROPIC -> completeAnthropic(messages, system, options)
+    }
+
+    private fun ChatRole.wire(): String = if (this == ChatRole.USER) "user" else "assistant"
 
     // --- OpenAI (chat-completions) ------------------------------------------
-    private suspend fun completeOpenAi(prompt: String, options: GenOptions): String {
+    // The system prompt is the first message (role:"system"); history + current
+    // follow as alternating user/assistant messages.
+    private suspend fun completeOpenAi(
+        messages: List<CloudMessage>,
+        system: String?,
+        options: GenOptions,
+    ): String {
+        val wire = buildList {
+            if (!system.isNullOrBlank()) add(ChatMessage(role = "system", content = system))
+            messages.forEach { add(ChatMessage(role = it.role.wire(), content = it.content)) }
+        }
         val request = ChatRequest(
             model = config.model,
-            messages = listOf(ChatMessage(role = "user", content = prompt)),
+            messages = wire,
             maxTokens = options.maxTokens,
             temperature = options.temperature,
             stop = options.stop.ifEmpty { null },
@@ -173,15 +194,20 @@ class HttpCloudClient(
     }
 
     // --- Anthropic (Messages API) -------------------------------------------
-    // POST {baseUrl}/v1/messages with x-api-key + anthropic-version headers;
-    // body {model, max_tokens, messages:[{role:"user", content:<prompt>}]};
-    // the answer is the text of the first content block (content[0].text).
-    private suspend fun completeAnthropic(prompt: String, options: GenOptions): String {
+    // POST {baseUrl}/v1/messages with x-api-key + anthropic-version headers; the
+    // persona goes in the top-level `system` field, history + current in the
+    // `messages` array (alternating user/assistant). Answer = content[0].text.
+    private suspend fun completeAnthropic(
+        messages: List<CloudMessage>,
+        system: String?,
+        options: GenOptions,
+    ): String {
         val request = AnthropicRequest(
             model = config.model,
             // Anthropic REQUIRES max_tokens; reuse the GenOptions cap.
             maxTokens = options.maxTokens,
-            messages = listOf(AnthropicMessage(role = "user", content = prompt)),
+            system = system?.takeIf { it.isNotBlank() },
+            messages = messages.map { AnthropicMessage(role = it.role.wire(), content = it.content) },
             temperature = options.temperature,
             stopSequences = options.stop.ifEmpty { null },
         )
@@ -312,6 +338,8 @@ private data class AnthropicRequest(
     @SerialName("max_tokens") val maxTokens: Int,
     val messages: List<AnthropicMessage>,
     val temperature: Float,
+    // Anthropic's persona/system prompt is a top-level field (not a message).
+    val system: String? = null,
     @SerialName("stop_sequences") val stopSequences: List<String>? = null,
 )
 

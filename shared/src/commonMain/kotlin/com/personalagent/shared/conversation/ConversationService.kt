@@ -6,6 +6,7 @@ import com.personalagent.shared.cache.NoOpCloudUsageRecorder
 import com.personalagent.shared.cache.NoOpSemanticCache
 import com.personalagent.shared.cache.SemanticCache
 import com.personalagent.shared.cloud.CloudClient
+import com.personalagent.shared.cloud.CloudMessage
 import com.personalagent.shared.cloud.EscalationPolicy
 import com.personalagent.shared.cloud.LocalOnlyEscalationPolicy
 import com.personalagent.shared.cloud.PassthroughPayloadPrep
@@ -88,10 +89,14 @@ class ConversationService(
      * records both the user turn and the assistant reply into memory. Blank input
      * is short-circuited (returns empty, records nothing).
      */
-    suspend fun respond(userText: String): String {
+    suspend fun respond(
+        userText: String,
+        history: List<ConversationTurn> = emptyList(),
+    ): String {
         val turn = userText.trim()
         if (turn.isEmpty()) return ""
 
+        val recent = history.takeLast(HISTORY_WINDOW)
         val context = retrieve(turn)
 
         // Step 6: cache-before-cloud. A strong cache hit grounds a LOCAL answer and
@@ -100,11 +105,13 @@ class ConversationService(
 
         val reply = if (cached.isEmpty() && routeToCloud(turn, context)) {
             cloudUsageRecorder.recordCloud()
-            escalate(turn, context)
+            escalate(turn, context, recent)
         } else {
-            // Local turn (on-device generation, incl. a semantic-cache hit).
+            // Local turn (on-device generation, incl. a semantic-cache hit). The
+            // prompt is multi-turn ChatML (persona + memory + recent history + turn)
+            // so the on-device model has short-term conversation memory.
             cloudUsageRecorder.recordLocal()
-            val prompt = promptBuilder.build(turn, ground(context, cached))
+            val prompt = promptBuilder.buildChatMl(turn, ground(context, cached), recent)
             llm.generate(prompt, options)
         }
 
@@ -120,10 +127,14 @@ class ConversationService(
      * Recording happens *inside* the flow, after the upstream finishes, so the
      * interaction is persisted exactly when a consumer fully collects the reply.
      */
-    fun respondStream(userText: String): Flow<String> = flow {
+    fun respondStream(
+        userText: String,
+        history: List<ConversationTurn> = emptyList(),
+    ): Flow<String> = flow {
         val turn = userText.trim()
         if (turn.isEmpty()) return@flow
 
+        val recent = history.takeLast(HISTORY_WINDOW)
         val context = retrieve(turn)
 
         // Step 6: same cache-before-cloud routing as respond(). A strong cache hit
@@ -134,7 +145,7 @@ class ConversationService(
             cloudUsageRecorder.recordCloud()
             // Cloud completion is non-streaming; emit the rehydrated answer as a
             // single chunk so the stream contract still holds (concatenation == reply).
-            val answer = escalate(turn, context)
+            val answer = escalate(turn, context, recent)
             if (answer.isNotEmpty()) emit(answer)
             record(turn, answer)
             return@flow
@@ -142,7 +153,7 @@ class ConversationService(
 
         // Local turn (on-device streaming, incl. a semantic-cache hit).
         cloudUsageRecorder.recordLocal()
-        val prompt = promptBuilder.build(turn, ground(context, cached))
+        val prompt = promptBuilder.buildChatMl(turn, ground(context, cached), recent)
 
         val full = StringBuilder()
         llm.generateStream(prompt, options).collect { chunk ->
@@ -185,9 +196,24 @@ class ConversationService(
      * that order. The [CloudClient] only ever receives [PreparedPayload.anonymizedText]
      * — never raw user text and never the on-device [RehydrationMap].
      */
-    private suspend fun escalate(turn: String, context: List<MemoryEntry>): String {
-        val prepared = payloadPrep.prepare(turn, context.map { it.content })
-        val cloudAnswer = cloudClient.complete(prepared.anonymizedText, options)
+    private suspend fun escalate(
+        turn: String,
+        context: List<MemoryEntry>,
+        history: List<ConversationTurn>,
+    ): String {
+        // Anonymize the WHOLE conversation (recent history + the current turn)
+        // through ONE shared map, so an entity tokenizes consistently across turns.
+        // The persona is sent as the cloud `system` prompt. On-device memory/notes
+        // are NOT sent to the cloud — they are used only as anonymizer hints (the
+        // existing privacy posture); they ground the LOCAL prompt only.
+        val turns = history + ConversationTurn(ChatRole.USER, turn)
+        val prepared = payloadPrep.prepareConversation(turns, context.map { it.content })
+        val messages = prepared.messages.map { CloudMessage(it.role, it.text) }
+        val cloudAnswer = cloudClient.completeConversation(
+            messages = messages,
+            system = promptBuilder.persona,
+            options = options,
+        )
         return payloadPrep.rehydrate(cloudAnswer, prepared.mapping)
     }
 
@@ -269,5 +295,12 @@ class ConversationService(
         const val SOURCE_USER = "user"
         const val SOURCE_ASSISTANT = "assistant"
         const val SOURCE_CACHE = "cache"
+
+        /**
+         * How many recent prior turns of the active chat to include for short-term
+         * conversation memory (≈5 exchanges). Bounded so the prompt fits small
+         * on-device models' context; the caller may pass more — we keep the last N.
+         */
+        const val HISTORY_WINDOW = 10
     }
 }

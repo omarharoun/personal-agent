@@ -8,7 +8,9 @@ import com.personalagent.shared.agent.AgentIntent
 import com.personalagent.shared.agent.IntentRouter
 import com.personalagent.shared.cloud.CloudException
 import com.personalagent.shared.cloud.CloudUnavailableException
+import com.personalagent.shared.conversation.ChatRole
 import com.personalagent.shared.conversation.ConversationService
+import com.personalagent.shared.conversation.ConversationTurn
 import com.personalagent.shared.util.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -100,6 +102,25 @@ class ConversationViewModel(
     private fun append(role: Message.Role, text: String) =
         appendTo(_currentId.value, role, text)
 
+    /**
+     * The prior conversation turns of [sessionId], oldest first, for short-term
+     * memory — only USER/ASSISTANT messages (SYSTEM confirmations are skipped), and
+     * with the LAST user message dropped because that is the current turn being
+     * answered (already echoed into the transcript by send()).
+     */
+    private fun historyFor(sessionId: Long): List<ConversationTurn> {
+        val msgs = _sessions.value.firstOrNull { it.id == sessionId }?.messages ?: return emptyList()
+        return msgs
+            .filter { it.role == Message.Role.USER || it.role == Message.Role.ASSISTANT }
+            .dropLast(1) // the current user turn
+            .map {
+                ConversationTurn(
+                    role = if (it.role == Message.Role.USER) ChatRole.USER else ChatRole.ASSISTANT,
+                    text = it.text,
+                )
+            }
+    }
+
     /** Start a fresh chat (reusing the current one if it's still empty). */
     fun newChat() {
         val current = _sessions.value.firstOrNull { it.id == _currentId.value }
@@ -177,10 +198,14 @@ class ConversationViewModel(
     private fun ask(text: String) {
         // Pin the reply to the chat that asked, even if the user switches mid-flight.
         val target = _currentId.value
+        // Short-term memory: the prior turns of THIS chat (oldest first), EXCLUDING
+        // the current user turn just appended in send(). Scoped per-chat, so a new
+        // chat / switching chats resets context. ConversationService windows it.
+        val history = historyFor(target)
         viewModelScope.launch {
             _sending.value = true
             try {
-                val reply = conversationService.respond(text)
+                val reply = conversationService.respond(text, history)
                 if (reply.isBlank()) {
                     appendTo(target, Message.Role.ASSISTANT, EMPTY_REPLY_FALLBACK)
                 } else {

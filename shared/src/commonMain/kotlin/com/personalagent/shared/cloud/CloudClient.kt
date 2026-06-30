@@ -1,6 +1,10 @@
 package com.personalagent.shared.cloud
 
+import com.personalagent.shared.conversation.ChatRole
 import com.personalagent.shared.conversation.GenOptions
+
+/** One message in a cloud request's messages array (content already anonymized). */
+data class CloudMessage(val role: ChatRole, val content: String)
 
 /**
  * A remote (cloud) language model used only when a turn is **escalated** off-device.
@@ -25,6 +29,21 @@ interface CloudClient {
 
     /** Complete [prompt] remotely under [options] and return the full answer. */
     suspend fun complete(prompt: String, options: GenOptions = GenOptions()): String
+
+    /**
+     * Complete a multi-turn conversation: [system] is the persona/system prompt
+     * (or null) and [messages] is the alternating user/assistant history ending
+     * with the current user message — all already anonymized. Returns the full
+     * (still-tokenized) answer; the caller rehydrates it.
+     *
+     * Default implementation flattens to the last message and calls [complete],
+     * so existing transports keep working until they override this.
+     */
+    suspend fun completeConversation(
+        messages: List<CloudMessage>,
+        system: String? = null,
+        options: GenOptions = GenOptions(),
+    ): String = complete(messages.lastOrNull()?.content ?: "", options)
 }
 
 /**
@@ -69,10 +88,16 @@ class DynamicCloudClient(
 ) : CloudClient {
     override val name: String = "byo-key (resolved per use)"
 
-    override suspend fun complete(prompt: String, options: GenOptions): String {
-        val client = resolve() ?: throw CloudUnavailableException(
-            "No cloud provider/key is configured. Set one in Settings → Cloud assist.",
-        )
-        return client.complete(prompt, options)
-    }
+    override suspend fun complete(prompt: String, options: GenOptions): String =
+        resolved().complete(prompt, options)
+
+    override suspend fun completeConversation(
+        messages: List<CloudMessage>,
+        system: String?,
+        options: GenOptions,
+    ): String = resolved().completeConversation(messages, system, options)
+
+    private fun resolved(): CloudClient = resolve() ?: throw CloudUnavailableException(
+        "No cloud provider/key is configured. Set one in Settings → Cloud assist.",
+    )
 }

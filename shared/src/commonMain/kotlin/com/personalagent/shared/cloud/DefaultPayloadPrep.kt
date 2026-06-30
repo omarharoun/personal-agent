@@ -53,7 +53,27 @@ class DefaultPayloadPrep : PayloadPrep {
         // never sent.
         val minimized = minimize(text)
         // SECONDARY defense: tokenize the identifiers that survive minimization.
-        return anonymize(minimized, contextHints)
+        val map = RehydrationMap()
+        val counters = HashMap<String, Int>()
+        val out = anonymizeInto(minimized, contextHints, map, counters)
+        return PreparedPayload(anonymizedText = out, mapping = map)
+    }
+
+    override fun prepareConversation(
+        turns: List<com.personalagent.shared.conversation.ConversationTurn>,
+        contextHints: List<String>,
+    ): PreparedConversation {
+        // ONE shared map + counters across the WHOLE conversation, so the same real
+        // entity tokenizes to the same placeholder in every turn. Every turn — user
+        // AND assistant — is minimized then anonymized: assistant history is
+        // model-generated text that may contain rehydrated real entities, so it must
+        // be re-anonymized for consistency before going back to the cloud.
+        val map = RehydrationMap()
+        val counters = HashMap<String, Int>()
+        val prepared = turns.map { turn ->
+            turn.copy(text = anonymizeInto(minimize(turn.text), contextHints, map, counters))
+        }
+        return PreparedConversation(messages = prepared, mapping = map)
     }
 
     override fun rehydrate(cloudAnswer: String, mapping: RehydrationMap): String {
@@ -98,10 +118,17 @@ class DefaultPayloadPrep : PayloadPrep {
     // SECONDARY DEFENSE — anonymization
     // ---------------------------------------------------------------------------
 
-    private fun anonymize(text: String, contextHints: List<String>): PreparedPayload {
-        val map = RehydrationMap()
-        val counters = HashMap<String, Int>()
-
+    /**
+     * Anonymize [text] INTO the supplied shared [map] + [counters] (so multiple
+     * calls — e.g. every turn of a conversation — reuse one token per entity).
+     * Returns the anonymized text; the map accumulates the token→real pairs.
+     */
+    private fun anonymizeInto(
+        text: String,
+        contextHints: List<String>,
+        map: RehydrationMap,
+        counters: HashMap<String, Int>,
+    ): String {
         fun tokenize(real: String, category: String): String {
             val trimmed = real.trim()
             map.tokenForReal(trimmed)?.let { return it }       // same entity → same token
@@ -147,7 +174,7 @@ class DefaultPayloadPrep : PayloadPrep {
             (words.subList(0, start) + token + words.subList(end, words.size)).joinToString(" ")
         }
 
-        return PreparedPayload(anonymizedText = t, mapping = map)
+        return t
     }
 
     private fun classifyHint(hint: String): String = when {

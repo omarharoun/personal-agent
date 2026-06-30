@@ -1,8 +1,11 @@
 package com.personalagent.shared.cloud
 
+import com.personalagent.shared.conversation.ChatRole
+import com.personalagent.shared.conversation.ConversationTurn
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -17,6 +20,37 @@ import kotlin.test.assertTrue
 class DefaultPayloadPrepTest {
 
     private val prep = DefaultPayloadPrep()
+
+    @Test
+    fun prepareConversation_shares_one_mapping_across_turns() {
+        // The same real entity must tokenize to the SAME placeholder in every turn
+        // (history + current), and the shared map must rehydrate the reply.
+        val turns = listOf(
+            ConversationTurn(ChatRole.USER, "Email Alice Johnson about the trip"),
+            ConversationTurn(ChatRole.ASSISTANT, "Okay, I'll email Alice Johnson."),
+            ConversationTurn(ChatRole.USER, "Tell Alice Johnson it's on Friday"),
+        )
+
+        val prepared = prep.prepareConversation(turns)
+
+        // The real name never appears in ANY outbound turn.
+        assertTrue(
+            prepared.messages.none { it.text.contains("Alice Johnson") },
+            "the real name must not appear in any anonymized turn",
+        )
+        // The SAME person token appears in every turn (consistent mapping).
+        val token = Regex("<PERSON_\\d+>").find(prepared.messages[0].text)?.value
+        assertNotNull(token, "the name should be tokenized in the first turn")
+        assertTrue(
+            prepared.messages.all { it.text.contains(token) },
+            "the same entity must reuse the same token across turns",
+        )
+        // The shared map rehydrates a reply that references the token.
+        assertEquals(
+            "Done — emailed Alice Johnson.",
+            prep.rehydrate("Done — emailed $token.", prepared.mapping),
+        )
+    }
 
     @Test
     fun emails_phones_names_locations_are_tokenized_and_absent_from_payload() {

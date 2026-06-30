@@ -13,11 +13,67 @@ import com.personalagent.shared.model.MemoryEntry
  * user turn are present.
  */
 class PromptBuilder(
-    private val persona: String = DEFAULT_PERSONA,
+    val persona: String = DEFAULT_PERSONA,
 ) {
 
     /**
-     * Build the full prompt.
+     * Build a multi-turn **ChatML** prompt for the on-device (MediaPipe) models,
+     * which are all ChatML (SmolLM / Qwen2.5). This is what gives the local model
+     * short-term conversation memory:
+     *
+     * ```
+     * <|im_start|>system
+     * <persona>
+     *
+     * [Relevant memory]
+     * - …                       (or "(no relevant memory)")
+     * <|im_end|>
+     * <|im_start|>user
+     * <prior user turn><|im_end|>
+     * <|im_start|>assistant
+     * <prior assistant turn><|im_end|>
+     * …                          (recent [history], oldest first)
+     * <|im_start|>user
+     * <current userText><|im_end|>
+     * <|im_start|>assistant
+     * ```
+     *
+     * The trailing open assistant turn is where the model continues; the on-device
+     * runtime stops on `<|im_end|>` and the [OutputSanitizer] strips any leak.
+     *
+     * @param history recent prior turns of THIS chat, oldest first (already
+     *   windowed by the caller). The current [userText] is appended after them.
+     */
+    fun buildChatMl(
+        userText: String,
+        context: List<MemoryEntry>,
+        history: List<ConversationTurn> = emptyList(),
+    ): String = buildString {
+        append(IM_START).append("system\n")
+        append(persona.trim()).append("\n\n")
+        append(SECTION_CONTEXT).append('\n')
+        if (context.isEmpty()) {
+            append(NO_CONTEXT)
+        } else {
+            for (entry in context) append("- ").append(entry.content.trim()).append('\n')
+            deleteAt(length - 1) // drop trailing newline from the loop
+        }
+        append(IM_END).append('\n')
+
+        for (turn in history) {
+            val role = if (turn.role == ChatRole.USER) "user" else "assistant"
+            append(IM_START).append(role).append('\n')
+            append(turn.text.trim()).append(IM_END).append('\n')
+        }
+
+        append(IM_START).append("user\n")
+        append(userText.trim()).append(IM_END).append('\n')
+        // Open the assistant turn; the model continues from here.
+        append(IM_START).append("assistant\n")
+    }
+
+    /**
+     * Build the full prompt (legacy bracket format).
      *
      * @param userText the current user turn.
      * @param context relevant memories retrieved for this turn, best-first. May be
@@ -65,5 +121,9 @@ class PromptBuilder(
         const val SECTION_USER = "[User]"
         const val SECTION_ASSISTANT = "[Assistant]"
         const val NO_CONTEXT = "(no relevant memory)"
+
+        // ChatML control tokens (the on-device catalog models are all ChatML).
+        const val IM_START = "<|im_start|>"
+        const val IM_END = "<|im_end|>"
     }
 }

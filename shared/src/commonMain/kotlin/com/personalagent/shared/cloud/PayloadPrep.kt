@@ -89,6 +89,18 @@ data class PreparedPayload(
 )
 
 /**
+ * A whole anonymized conversation safe to send to a [CloudClient], paired with the
+ * SINGLE on-device [mapping] shared across every turn — so the same real entity
+ * maps to the same token everywhere (turn 1's `<PERSON_1>` is the same person in
+ * turn 5). Only [messages] are transmitted; [mapping] stays on-device and
+ * rehydrates the reply.
+ */
+data class PreparedConversation(
+    val messages: List<com.personalagent.shared.conversation.ConversationTurn>,
+    val mapping: RehydrationMap,
+)
+
+/**
  * Strips identifying detail out of text **before** it leaves the device and puts
  * it back into the cloud answer **after** it returns.
  *
@@ -102,6 +114,17 @@ interface PayloadPrep {
      * memory snippets) may help the real anonymizer detect what to strip.
      */
     fun prepare(text: String, contextHints: List<String> = emptyList()): PreparedPayload
+
+    /**
+     * Prepare a whole multi-turn conversation for the cloud. EVERY turn (user AND
+     * assistant) is anonymized through ONE shared [RehydrationMap] so an entity is
+     * tokenized consistently across turns. Returns the anonymized turns (to send as
+     * a messages array) + the shared map (to rehydrate the reply locally).
+     */
+    fun prepareConversation(
+        turns: List<com.personalagent.shared.conversation.ConversationTurn>,
+        contextHints: List<String> = emptyList(),
+    ): PreparedConversation
 
     /** Restore stripped detail in [cloudAnswer] using [mapping]. */
     fun rehydrate(cloudAnswer: String, mapping: RehydrationMap): String
@@ -120,6 +143,11 @@ interface PayloadPrep {
 class PassthroughPayloadPrep : PayloadPrep {
     override fun prepare(text: String, contextHints: List<String>): PreparedPayload =
         PreparedPayload(anonymizedText = text, mapping = RehydrationMap())
+
+    override fun prepareConversation(
+        turns: List<com.personalagent.shared.conversation.ConversationTurn>,
+        contextHints: List<String>,
+    ): PreparedConversation = PreparedConversation(messages = turns, mapping = RehydrationMap())
 
     override fun rehydrate(cloudAnswer: String, mapping: RehydrationMap): String =
         mapping.rehydrate(cloudAnswer)

@@ -6,6 +6,7 @@ import com.personalagent.shared.cloud.EscalationPolicy
 import com.personalagent.shared.cloud.FakeCloudClient
 import com.personalagent.shared.cloud.HeuristicEscalationPolicy
 import com.personalagent.shared.cloud.PayloadPrep
+import com.personalagent.shared.cloud.PreparedConversation
 import com.personalagent.shared.cloud.PreparedPayload
 import com.personalagent.shared.cloud.RehydrationMap
 import com.personalagent.shared.memory.HashingEmbedder
@@ -38,6 +39,14 @@ private class RecordingPrep(val events: MutableList<String>) : PayloadPrep {
         return PreparedPayload(text, RehydrationMap())
     }
 
+    override fun prepareConversation(
+        turns: List<ConversationTurn>,
+        contextHints: List<String>,
+    ): PreparedConversation {
+        events += "prepare"
+        return PreparedConversation(turns, RehydrationMap())
+    }
+
     override fun rehydrate(cloudAnswer: String, mapping: RehydrationMap): String {
         events += "rehydrate"
         return cloudAnswer
@@ -57,6 +66,15 @@ private class TokenizingPrep(private val secret: String, private val token: Stri
     override fun prepare(text: String, contextHints: List<String>): PreparedPayload {
         val map = RehydrationMap().put(token, secret)
         return PreparedPayload(text.replace(secret, token), map)
+    }
+
+    override fun prepareConversation(
+        turns: List<ConversationTurn>,
+        contextHints: List<String>,
+    ): PreparedConversation {
+        // One shared map; tokenize the secret in every turn (consistent across turns).
+        val map = RehydrationMap().put(token, secret)
+        return PreparedConversation(turns.map { it.copy(text = it.text.replace(secret, token)) }, map)
     }
 
     override fun rehydrate(cloudAnswer: String, mapping: RehydrationMap): String =
