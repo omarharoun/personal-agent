@@ -30,8 +30,8 @@ android {
         applicationId = "com.personalagent.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 4
-        versionName = "1.2.0-bundled"
+        versionCode = 5
+        versionName = "1.2.1-chatmlfix"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Sideload build (not Play): ship ONLY arm64-v8a native libs (ONNX Runtime

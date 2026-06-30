@@ -5,6 +5,8 @@ import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
 import com.personalagent.shared.conversation.GenOptions
 import com.personalagent.shared.conversation.OnDeviceLlm
+import com.personalagent.shared.conversation.OutputSanitizer
+import com.personalagent.shared.conversation.PromptBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -76,8 +78,11 @@ class AndroidOnDeviceLlm internal constructor(
     }
 
     override suspend fun generate(prompt: String, options: GenOptions): String =
-        // Reuse the streaming path so stop/maxTokens semantics are identical.
-        generateStream(prompt, options).toList().joinToString(separator = "")
+        // Reuse the streaming path so stop/maxTokens semantics are identical, then
+        // sanitize any leaked chat-template/special tokens out of the visible text.
+        OutputSanitizer.sanitize(
+            generateStream(prompt, options).toList().joinToString(separator = ""),
+        )
 
     override fun generateStream(prompt: String, options: GenOptions): Flow<String> = callbackFlow {
         // Serialize the whole generation: the native session is single-use and
@@ -97,9 +102,12 @@ class AndroidOnDeviceLlm internal constructor(
             .setTemperature(options.temperature)
             .build()
 
+        // The bundled SmolLM-135M is a ChatML model: present the assembled prompt
+        // as a ChatML user turn and OPEN an assistant turn, so the model continues
+        // as the assistant instead of emitting raw <|im_start|>/<|im_end|> markers.
         val session = try {
             LlmInferenceSession.createFromOptions(engine, sessionOptions).also {
-                it.addQueryChunk(prompt)
+                it.addQueryChunk(toChatMl(prompt))
             }
         } catch (t: Throwable) {
             generateMutex.unlock()
@@ -107,8 +115,12 @@ class AndroidOnDeviceLlm internal constructor(
             return@callbackFlow
         }
 
+        // Register the model's turn-ending tokens as STOP sequences (in addition to
+        // any caller-supplied ones) so generation halts cleanly on <|im_end|> /
+        // <|endoftext|> and those tokens are trimmed off rather than streamed.
+        val stopOptions = options.copy(stop = (options.stop + CHATML_STOP_SEQUENCES).distinct())
         // Tracks stop-sequence + maxTokens enforcement across streamed deltas.
-        val gate = StreamGate(options)
+        val gate = StreamGate(stopOptions)
 
         // Partial results from MediaPipe are incremental deltas; `done` marks the
         // final callback. We count callbacks as token steps for maxTokens.
@@ -169,6 +181,25 @@ class AndroidOnDeviceLlm internal constructor(
         return modelFile
     }
 
+    /**
+     * Wrap the assembled prompt in ChatML for the bundled SmolLM (a ChatML model).
+     *
+     * The shared [PromptBuilder] already assembles persona + memory + the user turn
+     * and ends with an `[Assistant]` cue. We present that whole assembly as one
+     * ChatML *user* turn and open an *assistant* turn, so the model continues as the
+     * assistant and ends with `<|im_end|>` (which we stop on + trim) instead of
+     * leaking raw template markers. Idempotent-ish: if the prompt is already ChatML
+     * (starts with `<|im_start|>`) it is passed through unchanged.
+     */
+    private fun toChatMl(prompt: String): String {
+        if (prompt.trimStart().startsWith(IM_START)) return prompt
+        val body = prompt.substringBeforeLast(PromptBuilder.SECTION_ASSISTANT).trimEnd()
+        return buildString {
+            append(IM_START).append("user\n").append(body).append(IM_END).append('\n')
+            append(IM_START).append("assistant\n")
+        }
+    }
+
     /** Releases the native engine. Safe to call once when the app is done with it. */
     fun close() {
         engine?.close()
@@ -225,5 +256,17 @@ class AndroidOnDeviceLlm internal constructor(
 
         /** Top-K sampling pool size; a sensible default for small instruct models. */
         const val DEFAULT_TOP_K = 40
+
+        // ChatML control tokens for the bundled SmolLM model.
+        private const val IM_START = "<|im_start|>"
+        private const val IM_END = "<|im_end|>"
+
+        /**
+         * Turn-ending / sentinel tokens registered as stop sequences for the local
+         * model, so generation halts on them and they are trimmed from the output
+         * (the [OutputSanitizer] is the second line of defence for anything that
+         * still leaks through a `.task` bundle's baked-in template).
+         */
+        private val CHATML_STOP_SEQUENCES = listOf(IM_END, "<|endoftext|>", IM_START)
     }
 }
