@@ -9,6 +9,10 @@ import com.personalagent.shared.hermes.HermesClient
 import com.personalagent.shared.hermes.HermesConfig
 import com.personalagent.shared.hermes.HermesException
 import com.personalagent.shared.hermes.HermesWireMessage
+import com.personalagent.shared.safety.CrisisLevel
+import com.personalagent.shared.safety.CrisisRecognizer
+import com.personalagent.shared.safety.CrisisResponder
+import com.personalagent.shared.safety.CrisisResponse
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -54,7 +58,25 @@ data class ChatSession(
  */
 class ConversationViewModel(
     private val hermes: HermesClient,
+    // 🔒 REVIEW REQUIRED — crisis handling (Gate 2). Consulted on each user turn to
+    // OFFER a consent-first supportive surface; it never triggers any autonomous
+    // action. Coarse + conservative by design (see KeywordCrisisRecognizer). Must
+    // be reviewed by a crisis-response expert before real users rely on it.
+    private val crisisRecognizer: CrisisRecognizer,
+    private val crisisResponder: CrisisResponder,
 ) : ViewModel() {
+
+    /**
+     * 🔒 A supportive [CrisisResponse] to surface (consent-first), or null. Set
+     * when the recognizer flags possible distress in a user turn; the agent still
+     * replies normally. The app contacts NO ONE automatically — the card only
+     * offers resources + (on an explicit tap) opens the dialer to a trusted
+     * contact the user pre-chose. Dismissable.
+     */
+    private val _activeCrisis = MutableStateFlow<CrisisResponse?>(null)
+    val activeCrisis: StateFlow<CrisisResponse?> = _activeCrisis.asStateFlow()
+
+    fun dismissCrisis() { _activeCrisis.value = null }
 
     private var nextMessageId = 0L
     private var nextSessionId = 1L
@@ -146,6 +168,15 @@ class ConversationViewModel(
         val target = _currentId.value
         appendTo(target, Message.Role.USER, text)
 
+        // 🔒 REVIEW REQUIRED (Gate 2) — consult the conservative crisis recognizer
+        // on this turn. A hit only OFFERS support (message + resources + a
+        // consent-based, user-tapped reach-out); it never acts autonomously and
+        // never blocks the agent's own reply below.
+        val assessment = crisisRecognizer.assess(text)
+        if (assessment.level == CrisisLevel.POSSIBLE_DISTRESS) {
+            _activeCrisis.value = crisisResponder.respond(assessment)
+        }
+
         // Snapshot the wire history (includes the user turn just added) BEFORE the
         // empty assistant placeholder, so we don't send a blank assistant message.
         val wire = wireMessagesFor(target)
@@ -204,7 +235,11 @@ class ConversationViewModel(
                 // Gated by the Connect screen, so this should never be null; fail
                 // loudly rather than silently mis-wiring if it ever is.
                 ?: error("Hermes is not configured — Connect screen should gate this.")
-            return ConversationViewModel(client) as T
+            return ConversationViewModel(
+                hermes = client,
+                crisisRecognizer = container.crisisRecognizer,
+                crisisResponder = container.crisisResponder,
+            ) as T
         }
     }
 }

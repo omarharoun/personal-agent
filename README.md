@@ -11,14 +11,16 @@ a small server); the app is a thin, trusted client to it. **All memory and data
 live on your server. The app stores no sensitive user content** — only the
 connection config (URL, key) and a memory-scope key, sealed on-device.
 
-> **Status: Phase 2 of 5 — Notes & reminders.** The app connects to your Hermes,
-> holds a streaming conversation it remembers across launches
-> (`X-Hermes-Session-Key`), captures notes into the agent's server-side memory,
-> and sets reminders via Hermes `/api/jobs` — delivered by the app **polling**
-> and raising a **local** notification (no server we control, no push service).
-> "Remind me to call my sister Sunday" works end-to-end. Life-improvement
-> (Phase 3), reflection (Phase 4), and polish (Phase 5) follow. See
-> [`docs/PHASE2.md`](docs/PHASE2.md).
+> **Status: Phase 3 of 5 — Life-improvement layer + crisis handling.** On top of
+> connect + streaming chat (Phase 1) and notes + reminders (Phase 2), the app now
+> has a **Goals** view (define what "better" means; get a nudge grounded in the
+> agent's real memory of you) and a consent-first **crisis-support** surface wired
+> into chat. Reflection (Phase 4) and polish (Phase 5) follow. See
+> [`docs/PHASE3.md`](docs/PHASE3.md).
+>
+> ⚠️ Crisis handling is 🔒 built-and-flagged, **not shippable** until a
+> crisis-response expert reviews it (recognizer is coarse; resources are
+> placeholders to verify/localize; any autonomous contact is built **disabled**).
 >
 > Three 🔒 safety-critical areas (credential/session-key storage, crisis
 > handling, trust boundary) are built and flagged `// REVIEW REQUIRED` in code —

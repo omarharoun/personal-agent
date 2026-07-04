@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
@@ -85,7 +86,7 @@ import com.personalagent.shared.cloud.CloudProvider
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
-private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES, REMINDERS }
+private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES, REMINDERS, GOALS }
 
 /**
  * The app shell — an Open-WebUI-style chat surface: a slide-out navigation drawer
@@ -113,6 +114,8 @@ fun AppScreen(
         viewModel(factory = NotesViewModel.Factory(container))
     val remindersVm: RemindersViewModel =
         viewModel(factory = RemindersViewModel.Factory(container))
+    val goalsVm: GoalsViewModel =
+        viewModel(factory = GoalsViewModel.Factory(container))
 
     var surface by remember { mutableStateOf(Surface.CONVERSATION) }
     val snackbar = remember { SnackbarHostState() }
@@ -139,6 +142,7 @@ fun AppScreen(
                 onSelectChat = { id -> convoVm.selectChat(id); surface = Surface.CONVERSATION; closeDrawer() },
                 onOpenNotes = { surface = Surface.NOTES; closeDrawer() },
                 onOpenReminders = { remindersVm.refresh(); surface = Surface.REMINDERS; closeDrawer() },
+                onOpenGoals = { surface = Surface.GOALS; closeDrawer() },
                 onOpenSettings = { surface = Surface.SETTINGS; closeDrawer() },
                 onOpenSupport = { surface = Surface.SUPPORT; closeDrawer() },
             )
@@ -156,6 +160,9 @@ fun AppScreen(
             }
             Surface.REMINDERS -> SubScreen("Reminders", { surface = Surface.CONVERSATION }, snackbar) {
                 RemindersScreen(remindersVm)
+            }
+            Surface.GOALS -> SubScreen("Goals", { surface = Surface.CONVERSATION }, snackbar) {
+                GoalsScreen(goalsVm)
             }
             Surface.CONVERSATION -> ConversationContent(
                 convoVm = convoVm,
@@ -177,6 +184,7 @@ private fun AppDrawer(
     onSelectChat: (Long) -> Unit,
     onOpenNotes: () -> Unit,
     onOpenReminders: () -> Unit,
+    onOpenGoals: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSupport: () -> Unit,
 ) {
@@ -252,6 +260,12 @@ private fun AppDrawer(
                 onClick = onOpenReminders,
             )
             NavigationDrawerItem(
+                icon = { Icon(Icons.Filled.Flag, null) },
+                label = { Text("Goals") },
+                selected = currentSurface == Surface.GOALS,
+                onClick = onOpenGoals,
+            )
+            NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.FavoriteBorder, null) },
                 label = { Text("Support") },
                 selected = currentSurface == Surface.SUPPORT,
@@ -310,6 +324,12 @@ private fun ConversationContent(
 ) {
     val messages by convoVm.messages.collectAsStateWithLifecycle()
     val sending by convoVm.sending.collectAsStateWithLifecycle()
+    // 🔒 Consent-first crisis surface (Gate 2). Non-null → show the support card.
+    val activeCrisis by convoVm.activeCrisis.collectAsStateWithLifecycle()
+    val trustedContacts = remember { mutableStateOf(emptyList<com.personalagent.shared.safety.TrustedContact>()) }
+    LaunchedEffect(activeCrisis) {
+        if (activeCrisis != null) trustedContacts.value = container.trustedContactsStore.all()
+    }
 
     var draft by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -370,6 +390,17 @@ private fun ConversationContent(
                     items(messages, key = { it.id }) { msg -> MessageRow(msg) }
                     if (sending) item("typing") { TypingIndicator() }
                 }
+            }
+
+            // 🔒 Crisis support card (consent-first; contacts NO ONE automatically).
+            activeCrisis?.let { crisis ->
+                SupportResponseCard(
+                    response = crisis,
+                    contacts = trustedContacts.value,
+                    onDismiss = { convoVm.dismissCrisis() },
+                    onContactMissingApp = { },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
             }
 
             Composer(
