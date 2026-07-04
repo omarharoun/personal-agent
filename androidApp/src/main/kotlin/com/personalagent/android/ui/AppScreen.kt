@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -86,7 +87,7 @@ import com.personalagent.shared.cloud.CloudProvider
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
-private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES, REMINDERS, GOALS }
+private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES, REMINDERS, GOALS, REFLECTION }
 
 /**
  * The app shell — an Open-WebUI-style chat surface: a slide-out navigation drawer
@@ -116,6 +117,8 @@ fun AppScreen(
         viewModel(factory = RemindersViewModel.Factory(container))
     val goalsVm: GoalsViewModel =
         viewModel(factory = GoalsViewModel.Factory(container))
+    val reflectionVm: ReflectionViewModel =
+        viewModel(factory = ReflectionViewModel.Factory(container))
 
     var surface by remember { mutableStateOf(Surface.CONVERSATION) }
     val snackbar = remember { SnackbarHostState() }
@@ -143,6 +146,7 @@ fun AppScreen(
                 onOpenNotes = { surface = Surface.NOTES; closeDrawer() },
                 onOpenReminders = { remindersVm.refresh(); surface = Surface.REMINDERS; closeDrawer() },
                 onOpenGoals = { surface = Surface.GOALS; closeDrawer() },
+                onOpenReflection = { surface = Surface.REFLECTION; closeDrawer() },
                 onOpenSettings = { surface = Surface.SETTINGS; closeDrawer() },
                 onOpenSupport = { surface = Surface.SUPPORT; closeDrawer() },
             )
@@ -163,6 +167,9 @@ fun AppScreen(
             }
             Surface.GOALS -> SubScreen("Goals", { surface = Surface.CONVERSATION }, snackbar) {
                 GoalsScreen(goalsVm)
+            }
+            Surface.REFLECTION -> SubScreen("Reflection", { surface = Surface.CONVERSATION }, snackbar) {
+                ReflectionScreen(reflectionVm)
             }
             Surface.CONVERSATION -> ConversationContent(
                 convoVm = convoVm,
@@ -185,6 +192,7 @@ private fun AppDrawer(
     onOpenNotes: () -> Unit,
     onOpenReminders: () -> Unit,
     onOpenGoals: () -> Unit,
+    onOpenReflection: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSupport: () -> Unit,
 ) {
@@ -264,6 +272,12 @@ private fun AppDrawer(
                 label = { Text("Goals") },
                 selected = currentSurface == Surface.GOALS,
                 onClick = onOpenGoals,
+            )
+            NavigationDrawerItem(
+                icon = { Icon(Icons.Filled.SelfImprovement, null) },
+                label = { Text("Reflection") },
+                selected = currentSurface == Surface.REFLECTION,
+                onClick = onOpenReflection,
             )
             NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.FavoriteBorder, null) },

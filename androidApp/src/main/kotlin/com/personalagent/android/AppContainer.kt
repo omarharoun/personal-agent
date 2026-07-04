@@ -24,6 +24,7 @@ import com.personalagent.shared.hermes.HermesConfig
 import com.personalagent.shared.hermes.HermesConfigStore
 import com.personalagent.shared.hermes.HermesReminderPoller
 import com.personalagent.shared.hermes.NotifiedReminderStore
+import com.personalagent.shared.hermes.ReflectionStore
 import com.personalagent.shared.memory.Embedder
 import com.personalagent.shared.memory.InMemoryVectorIndex
 import com.personalagent.shared.memory.MemoryService
@@ -124,6 +125,13 @@ class AppContainer(
      */
     val notifiedReminderStore: NotifiedReminderStore =
         NotifiedReminderStore(encrypted("reminder_notified"))
+
+    /**
+     * Phase 4 reflection cadence (Off/Weekly/Monthly) + bookkeeping timestamps.
+     * A schedule preference only — no reflection content is stored on-device.
+     */
+    val reflectionStore: ReflectionStore =
+        ReflectionStore(encrypted("reflection"))
 
     /**
      * Build a reminder poller over the saved connection, or null if not
