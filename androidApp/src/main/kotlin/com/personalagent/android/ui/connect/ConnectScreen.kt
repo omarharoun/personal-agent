@@ -13,11 +13,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -36,6 +41,33 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+/**
+ * The connect front door: the Connect form, with a toggle to a plain-language
+ * setup guide (the hardest Path-A UX). Manages its own Connect↔Guide state so the
+ * host (MainActivity) just renders this until [onConnected].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ConnectFlow(vm: ConnectViewModel, onConnected: () -> Unit) {
+    var showGuide by remember { mutableStateOf(false) }
+    if (showGuide) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Setting up Hermes") },
+                    navigationIcon = {
+                        IconButton(onClick = { showGuide = false }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                )
+            },
+        ) { inner -> SetupGuideScreen(Modifier.padding(inner)) }
+    } else {
+        ConnectScreen(vm = vm, onConnected = onConnected, onOpenSetupGuide = { showGuide = true })
+    }
+}
 
 /**
  * The "Connect to your Hermes" screen — the front door of a bring-your-own-Hermes

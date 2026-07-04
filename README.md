@@ -11,12 +11,17 @@ a small server); the app is a thin, trusted client to it. **All memory and data
 live on your server. The app stores no sensitive user content** — only the
 connection config (URL, key) and a memory-scope key, sealed on-device.
 
-> **Status: Phase 4 of 5 — Reflection.** On top of connect + streaming chat
-> (Phase 1), notes + reminders (Phase 2), and goals + crisis handling (Phase 3),
-> the app now offers optional **weekly/monthly reflections** — personalized by the
-> agent's memory, delivered by a gentle local notification, one-tap to snooze or
-> turn off, never nagging. Polish (Phase 5) follows. See
-> [`docs/PHASE4.md`](docs/PHASE4.md).
+> **Status: v1 complete — all 5 phases.** Connect + streaming chat (Phase 1),
+> notes + reminders (Phase 2), goals + crisis handling (Phase 3), reflection
+> (Phase 4), and polish + production slim (Phase 5). The app is a thin ~21 MB
+> Hermes client (the on-device ML stack is retired — Hermes is the brain). A
+> first-run **setup guide** walks you through pointing it at your Hermes. See the
+> per-phase notes in [`docs/`](docs/) (PHASE0–PHASE5).
+>
+> ⚠️ Three 🔒 areas are **built and flagged, not shippable** until human review:
+> credential/session-key storage, crisis handling (crisis-expert review; resources
+> are placeholders to verify/localize; autonomous contact is built **disabled**),
+> and the trust boundary. Search the code for `REVIEW REQUIRED`.
 >
 > ⚠️ Crisis handling is 🔒 built-and-flagged, **not shippable** until a
 > crisis-response expert reviews it (recognizer is coarse; resources are

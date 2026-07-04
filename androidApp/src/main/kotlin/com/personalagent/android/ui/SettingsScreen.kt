@@ -6,53 +6,65 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.personalagent.android.AppContainer
-import com.personalagent.android.ui.onboarding.AiModelSetupScreen
-import com.personalagent.android.ui.onboarding.ModelSetupMode
-import com.personalagent.android.ui.onboarding.ModelSetupViewModel
 import com.personalagent.android.ui.theme.ThemeMode
 
 /**
- * Settings, opened from the drawer. Sections, top to bottom:
- *  1. **Appearance** — Dark (default) / Light / System.
- *  2. **Cloud (bring-your-own API key)** — Anthropic/OpenAI + a key (stored
- *     encrypted). Off by default → the app stays fully on-device.
- *  3. **On-device AI model** — provision / replace / delete the local model
- *     (takes the remaining space and scrolls internally).
- *  4. **About** — the build/version label, so the running build is identifiable.
+ * Settings for the Hermes client. Sections:
+ *  1. **Your Hermes** — the connected address + a way to change/disconnect it.
+ *  2. **Appearance** — Dark (default) / Light / System.
+ *  3. **About** — build/version + the privacy posture (data lives on your Hermes).
  */
 @Composable
 fun SettingsScreen(
     container: AppContainer,
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onDisconnect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val vm: ModelSetupViewModel =
-        viewModel(factory = ModelSetupViewModel.Factory(container))
-
-    Column(modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        HermesSection(container, onDisconnect)
+        HorizontalDivider()
         AppearanceSection(themeMode, onThemeModeChange)
         HorizontalDivider()
-        CloudSettingsSection(container)
-        HorizontalDivider()
-        AiModelSetupScreen(
-            vm = vm,
-            mode = ModelSetupMode.SETTINGS,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-        )
-        HorizontalDivider()
         AboutSection()
+    }
+}
+
+@Composable
+private fun HermesSection(container: AppContainer, onDisconnect: () -> Unit) {
+    val baseUrl = remember { container.hermesConfigStore.load()?.baseUrl }
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+        Text("Your Hermes", style = MaterialTheme.typography.titleMedium)
+        Text(
+            baseUrl ?: "Not connected",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            "Your conversations, notes, and reminders live on this server — not on any " +
+                "server we control. This device stores only the connection (encrypted).",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        OutlinedButton(onClick = onDisconnect, modifier = Modifier.padding(top = 10.dp)) {
+            Text("Change / disconnect")
+        }
     }
 }
 
@@ -92,7 +104,7 @@ private fun AboutSection() {
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
         Text("About", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Personal Agent — $version",
+            "Life Agent — $version",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),

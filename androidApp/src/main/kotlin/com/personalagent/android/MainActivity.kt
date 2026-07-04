@@ -20,7 +20,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.personalagent.android.ui.AppScreen
 import com.personalagent.android.ui.AppViewModel
 import com.personalagent.android.ui.SafetyViewModel
-import com.personalagent.android.ui.connect.ConnectScreen
+import com.personalagent.android.ui.connect.ConnectFlow
 import com.personalagent.android.ui.connect.ConnectViewModel
 
 class MainActivity : ComponentActivity() {
@@ -70,7 +70,7 @@ class MainActivity : ComponentActivity() {
                 if (!connected) {
                     val connectVm: ConnectViewModel =
                         viewModel(factory = ConnectViewModel.Factory(container))
-                    ConnectScreen(vm = connectVm, onConnected = {
+                    ConnectFlow(vm = connectVm, onConnected = {
                         connected = true
                         // Start delivering reminders now that we have a Hermes.
                         com.personalagent.android.notification.ReminderScheduling.ensurePeriodic(this@MainActivity)
@@ -80,7 +80,16 @@ class MainActivity : ComponentActivity() {
                     // 🔒 Step 7: consent-first crisis-safety surface (autonomous action disabled).
                     val safetyVm: SafetyViewModel =
                         viewModel(factory = SafetyViewModel.Factory(container))
-                    AppScreen(vm, safetyVm, container, themeMode, onThemeModeChange)
+                    AppScreen(
+                        vm, safetyVm, container, themeMode, onThemeModeChange,
+                        onDisconnect = {
+                            // 🔒 Trust boundary: forget the configured backend (keep the
+                            // memory-scope key so reconnecting lands in the same memory).
+                            container.hermesConfigStore.disconnect()
+                            com.personalagent.android.notification.ReminderScheduling.cancelAll(this@MainActivity)
+                            connected = false
+                        },
+                    )
                 }
             }
         }

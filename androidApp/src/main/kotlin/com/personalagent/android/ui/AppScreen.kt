@@ -108,6 +108,7 @@ fun AppScreen(
     container: AppContainer,
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onDisconnect: () -> Unit,
 ) {
     val convoVm: ConversationViewModel =
         viewModel(factory = ConversationViewModel.Factory(container))
@@ -154,7 +155,7 @@ fun AppScreen(
     ) {
         when (surface) {
             Surface.SETTINGS -> SubScreen("Settings", { surface = Surface.CONVERSATION }, snackbar) {
-                SettingsScreen(container, themeMode, onThemeModeChange)
+                SettingsScreen(container, themeMode, onThemeModeChange, onDisconnect = onDisconnect)
             }
             Surface.SUPPORT -> SubScreen("Support", { surface = Surface.CONVERSATION }, snackbar) {
                 SafetyScreen(safetyVm, snackbar)
