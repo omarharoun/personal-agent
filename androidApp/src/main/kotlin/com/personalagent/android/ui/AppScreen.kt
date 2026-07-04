@@ -85,7 +85,7 @@ import com.personalagent.shared.cloud.CloudProvider
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
-private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES, MEMORY }
+private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES }
 
 /**
  * The app shell — an Open-WebUI-style chat surface: a slide-out navigation drawer
@@ -108,7 +108,7 @@ fun AppScreen(
     onThemeModeChange: (ThemeMode) -> Unit,
 ) {
     val convoVm: ConversationViewModel =
-        viewModel(factory = ConversationViewModel.Factory(container, vm))
+        viewModel(factory = ConversationViewModel.Factory(container))
 
     var surface by remember { mutableStateOf(Surface.CONVERSATION) }
     val snackbar = remember { SnackbarHostState() }
@@ -134,7 +134,6 @@ fun AppScreen(
                 onNewChat = { convoVm.newChat(); surface = Surface.CONVERSATION; closeDrawer() },
                 onSelectChat = { id -> convoVm.selectChat(id); surface = Surface.CONVERSATION; closeDrawer() },
                 onOpenNotes = { surface = Surface.NOTES; closeDrawer() },
-                onOpenMemory = { surface = Surface.MEMORY; closeDrawer() },
                 onOpenSettings = { surface = Surface.SETTINGS; closeDrawer() },
                 onOpenSupport = { surface = Surface.SUPPORT; closeDrawer() },
             )
@@ -149,9 +148,6 @@ fun AppScreen(
             }
             Surface.NOTES -> SubScreen("Notes", { surface = Surface.CONVERSATION }, snackbar) {
                 NotesScreen(appState, vm)
-            }
-            Surface.MEMORY -> SubScreen("Memory", { surface = Surface.CONVERSATION }, snackbar) {
-                MemoryScreen(container)
             }
             Surface.CONVERSATION -> ConversationContent(
                 convoVm = convoVm,
@@ -172,7 +168,6 @@ private fun AppDrawer(
     onNewChat: () -> Unit,
     onSelectChat: (Long) -> Unit,
     onOpenNotes: () -> Unit,
-    onOpenMemory: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSupport: () -> Unit,
 ) {
@@ -185,7 +180,7 @@ private fun AppDrawer(
     ) {
         Column(Modifier.fillMaxSize().padding(12.dp)) {
             Text(
-                "Personal Agent",
+                "Life Agent",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -240,12 +235,6 @@ private fun AppDrawer(
                 label = { Text("Notes") },
                 selected = currentSurface == Surface.NOTES,
                 onClick = onOpenNotes,
-            )
-            NavigationDrawerItem(
-                icon = { Icon(Icons.Filled.Psychology, null) },
-                label = { Text("Memory") },
-                selected = currentSurface == Surface.MEMORY,
-                onClick = onOpenMemory,
             )
             NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.FavoriteBorder, null) },
@@ -323,7 +312,14 @@ private fun ConversationContent(
                         Icon(Icons.Filled.Menu, contentDescription = "Menu")
                     }
                 },
-                title = { ModelSelector(container, onAddKey = onOpenSettings) },
+                title = {
+                    Text(
+                        "Life Agent",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                },
                 actions = {
                     IconButton(onClick = { convoVm.newChat() }) {
                         Icon(Icons.Filled.Add, contentDescription = "New chat")
@@ -371,54 +367,6 @@ private fun ConversationContent(
                     convoVm.send(toSend)
                 },
             )
-        }
-    }
-}
-
-/** Top-bar model/provider selector. Reflects + sets the active route (on-device
- *  vs a BYO-key cloud provider). Picking a provider with no key opens Settings. */
-@Composable
-private fun ModelSelector(container: AppContainer, onAddKey: () -> Unit) {
-    val keyStore = container.cloudKeyStore
-    var refresh by remember { mutableIntStateOf(0) }
-    var open by remember { mutableStateOf(false) }
-
-    val active = remember(refresh) { keyStore.activeProvider() }
-    val label = remember(refresh) {
-        active?.takeIf { keyStore.hasKey(it) }?.displayName ?: "On-device"
-    }
-
-    Box {
-        Row(
-            modifier = Modifier
-                .clickable { open = true }
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Icon(Icons.Filled.KeyboardArrowDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(
-                text = { Text("On-device") },
-                onClick = { keyStore.clearActiveProvider(); refresh++; open = false },
-            )
-            CloudProvider.entries.forEach { p ->
-                val has = keyStore.hasKey(p)
-                DropdownMenuItem(
-                    text = { Text(if (has) p.displayName else "${p.displayName} — add key") },
-                    onClick = {
-                        open = false
-                        if (has) { keyStore.setActiveProvider(p); refresh++ } else onAddKey()
-                    },
-                )
-            }
         }
     }
 }
@@ -515,7 +463,7 @@ private fun Composer(
                     Box(Modifier.weight(1f).padding(vertical = 8.dp)) {
                         if (draft.isEmpty()) {
                             Text(
-                                "Message Personal Agent…",
+                                "Message your Life Agent…",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -557,10 +505,10 @@ private fun HomeEmptyState(
     modifier: Modifier = Modifier,
 ) {
     val examples = listOf(
-        "📝  Take a note" to "Take a note: weekend trip ideas",
+        "📝  Remember something" to "Remember that my sister's birthday is March 3rd",
         "⏰  Set a reminder" to "Remind me to call mom in 2 hours",
-        "✅  Plan something" to "Add to my plan: finish the budget",
-        "💭  Think it through" to "Help me think through a decision",
+        "🧭  Talk it through" to "Help me think through a decision I'm facing",
+        "🌱  Reflect" to "What patterns have you noticed in what I've told you?",
     )
 
     Column(
@@ -579,8 +527,8 @@ private fun HomeEmptyState(
         )
         Spacer(Modifier.height(10.dp))
         Text(
-            "Talk to me. I take notes, set reminders, track your plan, and think things " +
-                "through — on your device. Add an API key or install a model to chat.",
+            "I'm your Life Agent, running on your own Hermes. I remember what matters to " +
+                "you, keep your notes and reminders, and help you think things through.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

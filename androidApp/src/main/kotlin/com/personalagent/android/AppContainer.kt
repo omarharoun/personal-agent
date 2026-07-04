@@ -19,6 +19,9 @@ import com.personalagent.shared.cloud.HttpCloudClient
 import com.personalagent.shared.cloud.UnavailableCloudClient
 import com.personalagent.shared.conversation.ConversationService
 import com.personalagent.shared.conversation.OnDeviceLlm
+import com.personalagent.shared.hermes.HermesClient
+import com.personalagent.shared.hermes.HermesConfig
+import com.personalagent.shared.hermes.HermesConfigStore
 import com.personalagent.shared.memory.Embedder
 import com.personalagent.shared.memory.InMemoryVectorIndex
 import com.personalagent.shared.memory.MemoryService
@@ -81,6 +84,34 @@ class AppContainer(
 
     val store: LocalStore =
         PersistentLocalStore(encrypted("personal_agent_store"))
+
+    /**
+     * 🔒 REVIEW REQUIRED — credential + session-key storage + trust boundary.
+     *
+     * The connection to the user's OWN Hermes: base URL, API key, and the stable
+     * `X-Hermes-Session-Key`. Sealed at rest by the same hardware-backed encrypted
+     * [KeyValueStorage] as everything else — the API key and memory-scope key are
+     * never persisted in plaintext, logged, or backed up. There is NO default or
+     * hidden backend: the app talks only to the instance the user configures here.
+     */
+    val hermesConfigStore: HermesConfigStore =
+        HermesConfigStore(encrypted("hermes_connection"))
+
+    /** True once the user has connected to a Hermes at least once. */
+    val isHermesConfigured: Boolean
+        get() = hermesConfigStore.isConfigured()
+
+    /**
+     * Build a live [HermesClient] for the saved connection, or null if the user
+     * hasn't connected yet. Cheap to call; the caller owns the returned client's
+     * lifecycle (close when done). Re-reads config each call so a reconnect in
+     * Settings takes effect immediately.
+     */
+    fun hermesClientOrNull(): HermesClient? =
+        hermesConfigStore.load()?.let { HermesClient(it) }
+
+    /** Build a one-off client for an unsaved [config] (used by the Connect test). */
+    fun hermesClientFor(config: HermesConfig): HermesClient = HermesClient(config)
 
     /**
      * 🔒 First-run recovery-code setup state (verifier sealed at rest). The UI

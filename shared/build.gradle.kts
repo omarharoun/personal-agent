@@ -43,6 +43,12 @@ kotlin {
             // MockEngine: exercises HttpCloudClient with no real network.
             implementation(libs.ktor.client.mock)
         }
+        // JVM-only test deps: a REAL Ktor engine (CIO) so the live-Hermes
+        // integration test can hit a running instance. Opt-in via env vars; the
+        // test skips when they're absent, so CI stays hermetic.
+        jvmTest.dependencies {
+            implementation(libs.ktor.client.cio)
+        }
         androidMain.dependencies {
             implementation(libs.kotlinx.coroutines.android)
             // Android cloud engine.

@@ -4,26 +4,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.personalagent.android.AppContainer
-import com.personalagent.shared.agent.AgentIntent
-import com.personalagent.shared.agent.IntentRouter
-import com.personalagent.shared.cloud.CloudException
-import com.personalagent.shared.cloud.CloudUnavailableException
-import com.personalagent.shared.conversation.ChatRole
-import com.personalagent.shared.conversation.ConversationService
-import com.personalagent.shared.conversation.ConversationTurn
-import com.personalagent.shared.graph.MemoryGraphService
-import com.personalagent.shared.util.SystemClock
-import kotlinx.coroutines.Dispatchers
+import com.personalagent.shared.hermes.ChatStreamEvent
+import com.personalagent.shared.hermes.HermesClient
+import com.personalagent.shared.hermes.HermesConfig
+import com.personalagent.shared.hermes.HermesException
+import com.personalagent.shared.hermes.HermesWireMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** One line in the single conversational transcript. */
+/** One line in a conversation transcript. */
 data class Message(
     val id: Long,
     val role: Role,
@@ -32,49 +28,48 @@ data class Message(
     enum class Role { USER, ASSISTANT, SYSTEM }
 }
 
-/** One chat thread in the drawer's history. Title is the first user message. */
+/**
+ * One chat thread in the drawer's history. [conversationId] is the stable
+ * `X-Hermes-Session-Id` for this thread — new chat → new id, so the server
+ * threads short-term context per conversation while the app-wide
+ * `X-Hermes-Session-Key` keeps long-term memory continuous across all of them.
+ */
 data class ChatSession(
     val id: Long,
     val title: String,
     val messages: List<Message>,
+    val conversationId: String,
 )
 
 /**
- * Drives the single conversational surface (UX Stream 1). The app no longer has
- * Notes/Reminders/Plan tabs; instead every typed turn is routed by the shared
- * [IntentRouter]:
+ * Drives the chat surface, streaming replies from the user's **Hermes** agent
+ * (Hermes is the brain — memory, notes, reminders, skills all run server-side).
  *
- *  - CreateNote / CreateReminder / AddPlanItem → invoke the existing [AppViewModel]
- *    actions (which persist via the shared store/reminder service) and append a
- *    SYSTEM confirmation. These capabilities are now invoked *behind the scenes*.
- *  - Ask → hand the raw text to [ConversationService.respond] and append the
- *    ASSISTANT reply. If no on-device model is installed the service returns an
- *    empty/short reply, which we replace with a friendly fallback rather than
- *    crashing.
- *
- * The transcript is the single source of truth for what the user sees; persistence
- * still lives entirely in the shared layer via [appVm].
+ * Every typed turn goes straight to `POST /v1/chat/completions` (SSE). We append
+ * an empty assistant message and grow it as [ChatStreamEvent.Delta]s arrive, so
+ * the reply renders token-by-token. On any failure the assistant bubble shows a
+ * plain-language reason from [HermesException] — the cardinal rule from the old
+ * on-device build still holds: every send resolves to a reply or a visible error,
+ * never a forever-spinner.
  */
 class ConversationViewModel(
-    private val appVm: AppViewModel,
-    private val conversationService: ConversationService,
-    private val memoryGraph: MemoryGraphService,
+    private val hermes: HermesClient,
 ) : ViewModel() {
 
     private var nextMessageId = 0L
     private var nextSessionId = 1L
+    private var convSeq = 0L
 
-    // Multi-chat: an in-memory list of chat sessions for this app run, plus which
-    // one is current. "New chat" adds a session; the drawer lists them by title
-    // (first user message). Persistence across restarts is intentionally not wired
-    // yet — these live for the session, which is enough for the drawer/history UX.
-    private val _sessions = MutableStateFlow(listOf(ChatSession(0L, NEW_CHAT_TITLE, emptyList())))
+    private fun newConversationId(): String = "lifeagent-conv-${SESSION_SEED}-${convSeq++}"
+
+    private val _sessions = MutableStateFlow(
+        listOf(ChatSession(0L, NEW_CHAT_TITLE, emptyList(), newConversationId()))
+    )
     val sessions: StateFlow<List<ChatSession>> = _sessions.asStateFlow()
 
     private val _currentId = MutableStateFlow(0L)
     val currentChatId: StateFlow<Long> = _currentId.asStateFlow()
 
-    /** Messages of the currently-selected chat (what the transcript renders). */
     val messages: StateFlow<List<Message>> =
         combine(_sessions, _currentId) { sessions, id ->
             sessions.firstOrNull { it.id == id }?.messages ?: emptyList()
@@ -83,10 +78,8 @@ class ConversationViewModel(
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending.asStateFlow()
 
-    /** Append a message to a SPECIFIC session (so a reply lands in the chat that
-     *  asked, even if the user has since switched chats). Updates the title from
-     *  the first user turn. */
-    private fun appendTo(sessionId: Long, role: Message.Role, text: String) {
+    /** Append a message to [sessionId]; returns the new message id. */
+    private fun appendTo(sessionId: Long, role: Message.Role, text: String): Long {
         val mid = nextMessageId++
         _sessions.update { list ->
             list.map { sess ->
@@ -100,178 +93,118 @@ class ConversationViewModel(
                 }
             }
         }
+        return mid
     }
 
-    private fun append(role: Message.Role, text: String) =
-        appendTo(_currentId.value, role, text)
+    /** Replace the text of message [messageId] in [sessionId] (streaming growth). */
+    private fun setText(sessionId: Long, messageId: Long, text: String) {
+        _sessions.update { list ->
+            list.map { sess ->
+                if (sess.id != sessionId) sess
+                else sess.copy(messages = sess.messages.map { m ->
+                    if (m.id == messageId) m.copy(text = text) else m
+                })
+            }
+        }
+    }
 
-    /**
-     * The prior conversation turns of [sessionId], oldest first, for short-term
-     * memory — only USER/ASSISTANT messages (SYSTEM confirmations are skipped), and
-     * with the LAST user message dropped because that is the current turn being
-     * answered (already echoed into the transcript by send()).
-     */
-    private fun historyFor(sessionId: Long): List<ConversationTurn> {
+    private fun append(role: Message.Role, text: String) = appendTo(_currentId.value, role, text)
+
+    /** Wire history for [sessionId]: user+assistant turns, oldest first. */
+    private fun wireMessagesFor(sessionId: Long): List<HermesWireMessage> {
         val msgs = _sessions.value.firstOrNull { it.id == sessionId }?.messages ?: return emptyList()
         return msgs
             .filter { it.role == Message.Role.USER || it.role == Message.Role.ASSISTANT }
-            .dropLast(1) // the current user turn
+            .filter { it.text.isNotBlank() }
             .map {
-                ConversationTurn(
-                    role = if (it.role == Message.Role.USER) ChatRole.USER else ChatRole.ASSISTANT,
-                    text = it.text,
+                HermesWireMessage(
+                    role = if (it.role == Message.Role.USER) "user" else "assistant",
+                    content = it.text,
                 )
             }
     }
 
-    /** Start a fresh chat (reusing the current one if it's still empty). */
+    private fun conversationIdFor(sessionId: Long): String =
+        _sessions.value.firstOrNull { it.id == sessionId }?.conversationId ?: newConversationId()
+
     fun newChat() {
         val current = _sessions.value.firstOrNull { it.id == _currentId.value }
         if (current != null && current.messages.isEmpty()) return
         val id = nextSessionId++
-        _sessions.update { it + ChatSession(id, NEW_CHAT_TITLE, emptyList()) }
+        _sessions.update { it + ChatSession(id, NEW_CHAT_TITLE, emptyList(), newConversationId()) }
         _currentId.value = id
     }
 
-    /** Switch to a previously-started chat. */
     fun selectChat(id: Long) {
         if (_sessions.value.any { it.id == id }) _currentId.value = id
     }
 
-    /**
-     * Handle one user turn: echo it, route it, and either confirm a saved
-     * capability or stream/return an AI reply.
-     */
+    /** Handle one user turn: echo it, then stream the agent's reply. */
     fun send(input: String) {
         val text = input.trim()
         if (text.isEmpty() || _sending.value) return
-        append(Message.Role.USER, text)
-
-        when (val intent = IntentRouter.parse(text, SystemClock.nowMillis())) {
-            is AgentIntent.CreateNote -> {
-                appVm.addNote(intent.title, intent.body)
-                val preview = intent.title.ifBlank { intent.body }
-                append(Message.Role.SYSTEM, "Saved a note: $preview")
-            }
-
-            is AgentIntent.CreateReminder -> {
-                val whenMillis = intent.whenMillisHint
-                if (whenMillis != null) {
-                    appVm.scheduleReminder(intent.text, whenMillis)
-                    append(
-                        Message.Role.SYSTEM,
-                        "Reminder set for ${formatWhen(whenMillis)}: ${intent.text}",
-                    )
-                } else {
-                    // No time we could parse — default to a useful soon-ish nudge and
-                    // tell the user, rather than silently dropping it or guessing wildly.
-                    val defaultAt = SystemClock.nowMillis() + DEFAULT_REMINDER_DELAY_MILLIS
-                    appVm.scheduleReminder(intent.text, defaultAt)
-                    append(
-                        Message.Role.SYSTEM,
-                        "I didn't catch a time, so I set a reminder for " +
-                            "${formatWhen(defaultAt)}: ${intent.text}. " +
-                            "Tell me \"in N minutes/hours\" to change it.",
-                    )
-                }
-            }
-
-            is AgentIntent.AddPlanItem -> {
-                appVm.addPlanItem(intent.title)
-                append(Message.Role.SYSTEM, "Added to your plan: ${intent.title}")
-            }
-
-            is AgentIntent.Ask -> ask(intent.text)
-        }
-    }
-
-    /**
-     * Generate an AI reply for [text] and append it — OR append a visible error
-     * that NAMES the failing stage. The cardinal rule (the device bug was a
-     * forever-spinner with no reply and no error): every send must resolve to a
-     * reply or a rendered message. We never swallow an exception to "" or leave
-     * the spinner up.
-     *
-     *  - [CloudUnavailableException] → no local model AND no API key configured.
-     *  - [CloudException] → the cloud was reached but failed: timeout, bad key
-     *    (API error 401), wrong model (404), rate limit (429), parse error. Its
-     *    message already names the cause (e.g. "API error 401: invalid x-api-key").
-     *  - any other Throwable → an on-device model error (e.g. inference failed).
-     */
-    private fun ask(text: String) {
-        // Pin the reply to the chat that asked, even if the user switches mid-flight.
         val target = _currentId.value
-        // Short-term memory: the prior turns of THIS chat (oldest first), EXCLUDING
-        // the current user turn just appended in send(). Scoped per-chat, so a new
-        // chat / switching chats resets context. ConversationService windows it.
-        val history = historyFor(target)
+        appendTo(target, Message.Role.USER, text)
+
+        // Snapshot the wire history (includes the user turn just added) BEFORE the
+        // empty assistant placeholder, so we don't send a blank assistant message.
+        val wire = wireMessagesFor(target)
+        val convId = conversationIdFor(target)
+        val assistantId = appendTo(target, Message.Role.ASSISTANT, "")
+
         viewModelScope.launch {
             _sending.value = true
+            val builder = StringBuilder()
             try {
-                val reply = conversationService.respond(text, history)
-                if (reply.isBlank()) {
-                    appendTo(target, Message.Role.ASSISTANT, EMPTY_REPLY_FALLBACK)
-                } else {
-                    appendTo(target, Message.Role.ASSISTANT, reply.trim())
-                    // Learn about the user from this exchange — AFTER the reply is
-                    // shown, off the main thread, best-effort (never blocks/breaks chat).
-                    ingestMemory(text, reply.trim(), target)
+                hermes.streamChat(wire, sessionId = convId)
+                    .catch { e -> throw e }
+                    .collect { event ->
+                        when (event) {
+                            is ChatStreamEvent.Delta -> {
+                                builder.append(event.text)
+                                setText(target, assistantId, builder.toString())
+                            }
+                            ChatStreamEvent.Done -> Unit
+                        }
+                    }
+                if (builder.isBlank()) {
+                    setText(target, assistantId, EMPTY_REPLY_FALLBACK)
                 }
-            } catch (e: CloudUnavailableException) {
-                appendTo(target, Message.Role.ASSISTANT, MODEL_UNAVAILABLE_FALLBACK)
-            } catch (e: CloudException) {
-                appendTo(
-                    target, Message.Role.ASSISTANT,
-                    "I couldn't reach the cloud model: ${e.message ?: "unknown error"}. " +
-                        "Check your connection and your API key in Settings.",
-                )
+            } catch (e: HermesException) {
+                setText(target, assistantId, e.message ?: GENERIC_ERROR)
             } catch (e: Throwable) {
-                appendTo(
-                    target, Message.Role.ASSISTANT,
-                    "Something went wrong generating a reply: " +
-                        "${e.message ?: e::class.simpleName ?: "unknown error"}. " +
-                        "If you don't have an on-device model, add an API key in Settings.",
-                )
+                setText(target, assistantId, "$GENERIC_ERROR (${e.message ?: e::class.simpleName})")
             } finally {
                 _sending.value = false
             }
         }
     }
 
-    /** Extract + merge memory about the user from one exchange, off the main thread. */
-    private fun ingestMemory(userText: String, replyText: String, chatId: Long) {
-        viewModelScope.launch(Dispatchers.Default) {
-            runCatching { memoryGraph.ingest(userText, replyText, chatId.toString()) }
-        }
-    }
-
-    private fun formatWhen(triggerAtMillis: Long): String {
-        val deltaMin = ((triggerAtMillis - SystemClock.nowMillis()).coerceAtLeast(0)) / 60_000L
-        return when {
-            deltaMin < 1 -> "in under a minute"
-            deltaMin < 60 -> "in $deltaMin min"
-            else -> "in ${deltaMin / 60} h ${deltaMin % 60} min"
-        }
+    override fun onCleared() {
+        super.onCleared()
+        hermes.close()
     }
 
     companion object {
         const val NEW_CHAT_TITLE = "New chat"
-        private const val DEFAULT_REMINDER_DELAY_MILLIS = 60 * 60_000L // 1 hour
-        const val MODEL_UNAVAILABLE_FALLBACK =
-            "No on-device model installed, and no API key is set. " +
-                "Open the menu → Settings to download a model or add an API key, and I'll be able to chat. " +
-                "Notes, reminders, and plans still work right now."
+        // A per-VM seed so conversation ids are unique across app runs without
+        // needing a platform UUID in shared code.
+        private val SESSION_SEED = kotlin.random.Random.nextInt(0, Int.MAX_VALUE).toString(16)
         const val EMPTY_REPLY_FALLBACK =
-            "I didn't get any text back that time. Please try again."
+            "Hermes didn't send any text back. Check that your Hermes has a working model provider configured."
+        const val GENERIC_ERROR =
+            "Something went wrong talking to your Hermes."
     }
 
-    /** Factory: builds the conversation VM from the container + the shared app VM. */
-    class Factory(
-        private val container: AppContainer,
-        private val appVm: AppViewModel,
-    ) : ViewModelProvider.Factory {
+    /** Factory: builds the conversation VM with a live Hermes client from the container. */
+    class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            ConversationViewModel(appVm, container.conversationService, container.memoryGraph) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            val client = container.hermesClientOrNull()
+                // Gated by the Connect screen, so this should never be null; fail
+                // loudly rather than silently mis-wiring if it ever is.
+                ?: error("Hermes is not configured — Connect screen should gate this.")
+            return ConversationViewModel(client) as T
+        }
     }
 }

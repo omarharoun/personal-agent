@@ -1,30 +1,48 @@
-# Personal Agent
+# Life Agent — a Hermes Agent client
 
-A private, on-device personal AI agent for **iPhone and Android**, built on a
-shared **Kotlin Multiplatform (KMP)** core with **native UI per platform**
-(Jetpack Compose on Android, SwiftUI on iOS).
+A polished **iOS + Android** client for a **user-owned [Hermes Agent](https://hermes-agent.nousresearch.com)**
+backend, specialized for one job: **helping you be better at your life** — chat
+with memory, notes, reminders, goals, and gentle reflection. Built on a shared
+**Kotlin Multiplatform (KMP)** core (Ktor + Jetpack Compose on Android, SwiftUI
+on iOS).
 
-> **Status: Step 1 of 7 — thin running foundation, NO AI yet.**
-> This is the clean scaffold + stable interfaces that later steps slot into.
-> Memory/AI, cloud, encryption, and crisis features are later, gated steps and
-> are **not** built here. Data is stored **unencrypted behind a swap-in
-> interface** for now (encryption is Step 5 — see
-> [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md)). Do not put real user
-> data in it yet.
+**Path A — bring-your-own-Hermes.** You run your own Hermes (on your computer or
+a small server); the app is a thin, trusted client to it. **All memory and data
+live on your server. The app stores no sensitive user content** — only the
+connection config (URL, key) and a memory-scope key, sealed on-device.
 
-## UI-stack choice & why
+> **Status: Phase 1 of 5 — Connect + streaming chat.** The app connects to your
+> Hermes, holds a streaming conversation it remembers across launches via a
+> securely-stored `X-Hermes-Session-Key`, and retires the old on-device-model
+> path (Hermes is the brain now). Notes/reminders (Phase 2), life-improvement
+> (Phase 3), reflection (Phase 4), and polish (Phase 5) follow.
+>
+> Three 🔒 safety-critical areas (credential/session-key storage, crisis
+> handling, trust boundary) are built and flagged `// REVIEW REQUIRED` in code —
+> **a human must review them before real users rely on them.** See
+> [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) and the per-phase notes in
+> [`docs/PHASE0.md`](docs/PHASE0.md), [`docs/PHASE1.md`](docs/PHASE1.md).
 
-**Decision: native UI per platform (Jetpack Compose + SwiftUI) over a shared KMP
-business-logic module** — *not* Compose Multiplatform.
+## Framework choice & why
 
-- The brief calls for "native UI per platform". Reminders — the one feature in
-  Step 1 with real OS integration — are inherently platform code anyway
-  (`AlarmManager` vs `UNUserNotificationCenter`), so a shared UI layer would buy
-  little here while adding abstraction.
-- SwiftUI + Compose give the most faithful native notification/permission UX and
-  let each platform evolve idiomatically.
-- **All logic that isn't pixels or OS calls lives in `:shared`** (models, store,
-  reminder service), so the platforms stay thin and the logic is unit-tested once.
+**Kotlin Multiplatform, continuing this repo.** This codebase was already a
+working KMP app (Ktor HTTP client, Compose chat UI with streaming, hardware-
+sealed secure storage, notes/reminders + local notifications). Repointing that
+plumbing at Hermes reuses ~all of it, so KMP is the natural continuation over a
+React-Native rewrite. Shared logic (the `HermesClient`, config/session-key store,
+wire models) lives in `:shared` and is unit-tested once; each platform keeps a
+thin native UI.
+
+## Connecting the app to your Hermes
+
+1. Install + run Hermes with the OpenAI-compatible API server enabled
+   (`API_SERVER_ENABLED=true`, `API_SERVER_KEY=<your-key>` in `~/.hermes/.env`),
+   then `hermes gateway run`. It listens on `http://127.0.0.1:8642` by default
+   (see [`docs/PHASE0.md`](docs/PHASE0.md) for the exact v0.18.0 surface).
+2. Launch the app → **Connect** screen → enter the Hermes address (e.g.
+   `http://192.168.1.20:8642`) + your API key → **Test & Connect**. The app
+   verifies with `GET /health` before saving.
+3. Chat. Your agent remembers you across conversations and launches.
 
 ## Project structure
 
