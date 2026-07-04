@@ -1,5 +1,6 @@
 package com.personalagent.shared.hermes
 
+import com.personalagent.shared.store.InMemoryKeyValueStorage
 import io.ktor.client.engine.cio.CIO
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -74,6 +75,62 @@ class HermesLiveIntegrationTest {
                 println("live stream reply: $text")
                 assertTrue(text.isNotBlank(), "got streamed text")
                 assertTrue(events.last() is ChatStreamEvent.Done, "stream terminated with Done")
+            } finally { c.close() }
+        }
+    }
+
+    @Test
+    fun jobs_create_list_delete_roundtrip() {
+        if (!enabled) { println("SKIP live test — set HERMES_BASE_URL + HERMES_API_KEY"); return }
+        runBlocking {
+            val c = client()
+            try {
+                val name = "itest-reminder-${System.currentTimeMillis()}"
+                val created = c.createJob(
+                    name = name,
+                    schedule = oneShotScheduleMinutes(0, 90 * 60_000L), // 90m from now
+                    prompt = "Remind the user: integration test reminder",
+                )
+                println("live job created: id=${created.id} next=${created.nextRunAt} display=${created.scheduleDisplay}")
+                assertTrue(created.id.isNotBlank())
+
+                val listed = c.listJobs()
+                assertTrue(listed.any { it.id == created.id }, "created job appears in list")
+                assertTrue(listed.first { it.id == created.id }.nextRunAtMillis != null, "has parseable run time")
+
+                c.deleteJob(created.id)
+                assertTrue(c.listJobs().none { it.id == created.id }, "job removed after delete")
+                println("live job deleted ok")
+            } finally { c.close() }
+        }
+    }
+
+    @Test
+    fun poller_detects_due_job_and_notifies_once_live() {
+        if (!enabled) { println("SKIP live test — set HERMES_BASE_URL + HERMES_API_KEY"); return }
+        runBlocking {
+            val c = client()
+            try {
+                val created = c.createJob(
+                    name = "itest-poll-${System.currentTimeMillis()}",
+                    schedule = oneShotScheduleMinutes(0, 5 * 60_000L),
+                    prompt = "Remind the user: poll test",
+                )
+                val runAt = created.nextRunAtMillis ?: error("no run time")
+                val store = NotifiedReminderStore(InMemoryKeyValueStorage())
+                // Pretend "now" is just after the job's run time so it reads as due.
+                val poller = HermesReminderPoller(c, store, now = { runAt + 60_000L })
+
+                var notifiedBody: String? = null
+                val due = poller.pollOnce { notifiedBody = it.body }
+                println("live poller notified: $notifiedBody")
+                assertTrue(due.any { it.jobId == created.id }, "poller surfaced the due job")
+
+                // Second poll must NOT re-notify the same firing.
+                val again = poller.pollOnce { error("should not re-notify") }
+                assertTrue(again.none { it.jobId == created.id }, "notified-once dedup holds")
+
+                c.deleteJob(created.id)
             } finally { c.close() }
         }
     }

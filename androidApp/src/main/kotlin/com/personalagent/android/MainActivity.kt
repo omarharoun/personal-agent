@@ -70,7 +70,11 @@ class MainActivity : ComponentActivity() {
                 if (!connected) {
                     val connectVm: ConnectViewModel =
                         viewModel(factory = ConnectViewModel.Factory(container))
-                    ConnectScreen(vm = connectVm, onConnected = { connected = true })
+                    ConnectScreen(vm = connectVm, onConnected = {
+                        connected = true
+                        // Start delivering reminders now that we have a Hermes.
+                        com.personalagent.android.notification.ReminderScheduling.ensurePeriodic(this@MainActivity)
+                    })
                 } else {
                     val vm: AppViewModel = viewModel(factory = AppViewModel.Factory(container))
                     // 🔒 Step 7: consent-first crisis-safety surface (autonomous action disabled).

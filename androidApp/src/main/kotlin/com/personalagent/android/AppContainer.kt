@@ -22,6 +22,8 @@ import com.personalagent.shared.conversation.OnDeviceLlm
 import com.personalagent.shared.hermes.HermesClient
 import com.personalagent.shared.hermes.HermesConfig
 import com.personalagent.shared.hermes.HermesConfigStore
+import com.personalagent.shared.hermes.HermesReminderPoller
+import com.personalagent.shared.hermes.NotifiedReminderStore
 import com.personalagent.shared.memory.Embedder
 import com.personalagent.shared.memory.InMemoryVectorIndex
 import com.personalagent.shared.memory.MemoryService
@@ -62,6 +64,9 @@ class AppContainer(
     private val cloudConfig: CloudConfig? = null,
 ) {
     private val appContext = context.applicationContext
+
+    /** The process-wide application context (for WorkManager/notifications). */
+    val androidContext: Context get() = appContext
 
     /**
      * 🔒 The single hardware-backed key provider (AndroidKeyStore AES-256-GCM)
@@ -112,6 +117,26 @@ class AppContainer(
 
     /** Build a one-off client for an unsaved [config] (used by the Connect test). */
     fun hermesClientFor(config: HermesConfig): HermesClient = HermesClient(config)
+
+    /**
+     * Notify-once markers for reminder polling — opaque job-id@run-time keys
+     * only (no reminder text). Sealed at rest like everything else.
+     */
+    val notifiedReminderStore: NotifiedReminderStore =
+        NotifiedReminderStore(encrypted("reminder_notified"))
+
+    /**
+     * Build a reminder poller over the saved connection, or null if not
+     * connected. The caller (the WorkManager worker) owns the client's lifecycle.
+     */
+    fun reminderPollerOrNull(): Pair<HermesClient, HermesReminderPoller>? {
+        val client = hermesClientOrNull() ?: return null
+        return client to HermesReminderPoller(
+            client = client,
+            notified = notifiedReminderStore,
+            now = { SystemClock.nowMillis() },
+        )
+    }
 
     /**
      * 🔒 First-run recovery-code setup state (verifier sealed at rest). The UI

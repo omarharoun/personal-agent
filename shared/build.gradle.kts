@@ -31,6 +31,7 @@ kotlin {
         commonMain.dependencies {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.datetime)
             // Step 4 cloud transport: portable Ktor client + JSON content negotiation.
             // The concrete engine is supplied per platform (below) or injected in tests.
             implementation(libs.ktor.client.core)

@@ -6,8 +6,10 @@ import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
+import io.ktor.client.request.post
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -188,6 +190,60 @@ class HermesClient(
             }
             emit(ChatStreamEvent.Done)
         }
+    }
+
+    /**
+     * Non-streaming convenience: send [messages] and collect the whole reply as
+     * one string. Built on [streamChat], so it shares the same headers, memory
+     * scope, and error mapping. Used for one-shot asks (note capture, nudges).
+     */
+    suspend fun complete(messages: List<HermesWireMessage>, sessionId: String? = null): String {
+        val sb = StringBuilder()
+        streamChat(messages, sessionId).collect { ev ->
+            if (ev is ChatStreamEvent.Delta) sb.append(ev.text)
+        }
+        return sb.toString().trim()
+    }
+
+    // --- Reminders / jobs (/api/jobs) ----------------------------------------
+
+    /** `GET /api/jobs` — the user's scheduled reminders (Hermes is source of truth). */
+    suspend fun listJobs(): List<HermesJob> {
+        val res = getAuthed(config.jobs)
+        return json.decodeFromString(HermesJobsList.serializer(), res).jobs
+    }
+
+    /**
+     * `POST /api/jobs` — create a one-shot reminder. [schedule] is a duration
+     * like `"90m"` (see [oneShotScheduleMinutes]); [prompt] is what Hermes will
+     * act on when it fires. Returns the created job (with its server id + run time).
+     */
+    suspend fun createJob(name: String, schedule: String, prompt: String): HermesJob {
+        val body = HermesCreateJobRequest(name = name, schedule = schedule, prompt = prompt)
+        val res = try {
+            client.post(config.jobs) {
+                authHeaders()
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(HermesCreateJobRequest.serializer(), body))
+            }
+        } catch (e: HttpRequestTimeoutException) {
+            throw HermesException("Your Hermes didn't respond in time while saving the reminder.", e)
+        } catch (e: Throwable) {
+            throw HermesException(unreachable(), e)
+        }
+        if (!res.status.isSuccess()) throw statusException(res)
+        return json.decodeFromString(HermesJobEnvelope.serializer(), res.bodyAsText()).job
+            ?: throw HermesException("Hermes accepted the reminder but returned no job.")
+    }
+
+    /** `DELETE /api/jobs/{id}` — cancel a reminder. */
+    suspend fun deleteJob(id: String) {
+        val res = try {
+            client.delete(config.job(id)) { authHeaders() }
+        } catch (e: Throwable) {
+            throw HermesException(unreachable(), e)
+        }
+        if (!res.status.isSuccess()) throw statusException(res)
     }
 
     // --- internals ------------------------------------------------------------

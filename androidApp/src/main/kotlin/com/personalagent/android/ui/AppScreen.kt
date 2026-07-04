@@ -38,7 +38,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -85,7 +85,7 @@ import com.personalagent.shared.cloud.CloudProvider
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
-private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES }
+private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES, REMINDERS }
 
 /**
  * The app shell — an Open-WebUI-style chat surface: a slide-out navigation drawer
@@ -109,6 +109,10 @@ fun AppScreen(
 ) {
     val convoVm: ConversationViewModel =
         viewModel(factory = ConversationViewModel.Factory(container))
+    val notesVm: NotesViewModel =
+        viewModel(factory = NotesViewModel.Factory(container))
+    val remindersVm: RemindersViewModel =
+        viewModel(factory = RemindersViewModel.Factory(container))
 
     var surface by remember { mutableStateOf(Surface.CONVERSATION) }
     val snackbar = remember { SnackbarHostState() }
@@ -134,6 +138,7 @@ fun AppScreen(
                 onNewChat = { convoVm.newChat(); surface = Surface.CONVERSATION; closeDrawer() },
                 onSelectChat = { id -> convoVm.selectChat(id); surface = Surface.CONVERSATION; closeDrawer() },
                 onOpenNotes = { surface = Surface.NOTES; closeDrawer() },
+                onOpenReminders = { remindersVm.refresh(); surface = Surface.REMINDERS; closeDrawer() },
                 onOpenSettings = { surface = Surface.SETTINGS; closeDrawer() },
                 onOpenSupport = { surface = Surface.SUPPORT; closeDrawer() },
             )
@@ -147,7 +152,10 @@ fun AppScreen(
                 SafetyScreen(safetyVm, snackbar)
             }
             Surface.NOTES -> SubScreen("Notes", { surface = Surface.CONVERSATION }, snackbar) {
-                NotesScreen(appState, vm)
+                NotesScreen(notesVm)
+            }
+            Surface.REMINDERS -> SubScreen("Reminders", { surface = Surface.CONVERSATION }, snackbar) {
+                RemindersScreen(remindersVm)
             }
             Surface.CONVERSATION -> ConversationContent(
                 convoVm = convoVm,
@@ -168,6 +176,7 @@ private fun AppDrawer(
     onNewChat: () -> Unit,
     onSelectChat: (Long) -> Unit,
     onOpenNotes: () -> Unit,
+    onOpenReminders: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSupport: () -> Unit,
 ) {
@@ -235,6 +244,12 @@ private fun AppDrawer(
                 label = { Text("Notes") },
                 selected = currentSurface == Surface.NOTES,
                 onClick = onOpenNotes,
+            )
+            NavigationDrawerItem(
+                icon = { Icon(Icons.Filled.Notifications, null) },
+                label = { Text("Reminders") },
+                selected = currentSurface == Surface.REMINDERS,
+                onClick = onOpenReminders,
             )
             NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.FavoriteBorder, null) },
