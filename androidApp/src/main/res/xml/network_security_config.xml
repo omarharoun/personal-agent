@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext (plain http://) is REQUIRED for this app.
+
+  This is a bring-your-own-Hermes client: the user points it at their OWN Hermes
+  API server, which runs on a LAN/VPN address over plain http:// (e.g.
+  http://192.168.1.20:8642 or a Tailscale http://100.x.y.z:8642) — local Hermes
+  servers have no TLS. Android blocks cleartext by default on API 28+, which
+  otherwise stops the connection before it ever leaves the phone.
+
+  Android's network-security-config matches domain-config by hostNAME, not by IP
+  CIDR range, and users connect by raw LAN/Tailscale IP — so per-range scoping
+  isn't possible here. We therefore permit cleartext app-wide. This is acceptable
+  for v1: the app only ever talks to the single server the user explicitly
+  configures (the trust boundary), and that server is theirs. If the user points
+  it at an https:// Hermes, that path is still used and validated normally.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
