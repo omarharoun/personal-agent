@@ -1,14 +1,31 @@
 # iosApp — SwiftUI front-end
 
-Native SwiftUI UI over the shared KMP `:shared` module. The business logic
-(models, `LocalStore`, `ReminderService`) is 100% shared Kotlin; only the UI and
-the `UNUserNotificationCenter` scheduler are Swift.
-
 > ⚠️ **This target cannot be built in the Linux dev sandbox** — it requires
-> **macOS + Xcode**. The Swift sources and Kotlin/Native `iosMain` code compile
-> cleanly (the shared iOS klibs build on Linux), but linking the framework and
-> running the app must be done on your Mac. Nothing here has been run on a
-> simulator/device yet.
+> **macOS + Xcode**. Everything here is written but UNBUILT/UNRUN on iOS.
+
+## Hermes Life Agent client (current direction)
+
+The app is being repurposed into a **Hermes Agent client** (same as Android). The
+iOS Hermes client is a pure-Swift starting point (no Kotlin-Flow interop needed):
+
+| File | Role |
+|------|------|
+| `iosApp/HermesClient.swift` | URLSession client — `/health`, streaming `/v1/chat/completions` (SSE), `/api/jobs`. Mirrors the shared Kotlin `HermesClient` and the wire contract verified live in `docs/PHASE0–2`. |
+| `iosApp/HermesLifeAgentView.swift` | SwiftUI **Connect** (base URL + key, tested via `/health`) + streaming **Chat**, with 🔒 **Keychain**-backed credential + session-key storage. |
+
+To adopt it, point `iOSApp.swift`'s root at `HermesLifeAgentView()`. Feature parity
+with Android (reminder polling, goals, reflection, the consent-first crisis card)
+is the remaining iOS work; the shared KMP core (`HermesClient`, `HermesConfig`,
+jobs, reflection, `LifePrompts`) is already there, and the Swift `HermesClient`
+covers chat + reminders today.
+
+---
+
+## Legacy (on-device) SwiftUI — being retired
+
+The files below are the previous on-device build (Notes/Reminders over shared
+Kotlin + on-device ML). They remain for reference while iOS is migrated to the
+Hermes client; the Android app has already retired this stack.
 
 ## Files
 
