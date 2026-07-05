@@ -53,8 +53,14 @@ sealed interface RunEvent {
     data class Completed(val output: String, val usage: RunUsage?) : RunEvent
     /** The run failed. */
     data class Failed(val message: String) : RunEvent
-    /** A dangerous tool needs human approval (built read-only in the UI for v1). */
-    data class ApprovalRequested(val command: String) : RunEvent
+    /**
+     * A dangerous tool needs human approval before it runs. [command] is the
+     * (credential-redacted) command; [choices] are the server-accepted responses
+     * (e.g. once/session/always/deny). Answer via [HermesClient.submitApproval].
+     */
+    data class ApprovalRequested(val command: String, val choices: List<String>) : RunEvent
+    /** An approval was resolved (server continues the run). Clears the prompt. */
+    data class ApprovalResolved(val choice: String) : RunEvent
 }
 
 /** Parse one SSE `data:` payload into a [RunEvent], or null to ignore. */
@@ -77,9 +83,23 @@ fun parseRunEvent(payload: String, json: Json = HermesJson): RunEvent? {
         )
         "run.failed" -> RunEvent.Failed(str("error").ifBlank { "The run failed." })
         "run.cancelled" -> RunEvent.Failed("The run was cancelled.")
-        "approval.request" -> RunEvent.ApprovalRequested(str("command"))
+        "approval.request" -> RunEvent.ApprovalRequested(
+            command = str("command"),
+            choices = (obj["choices"] as? kotlinx.serialization.json.JsonArray)
+                ?.mapNotNull { it.jsonPrimitive.content }
+                ?: listOf("once", "deny"),
+        )
+        "approval.responded" -> RunEvent.ApprovalResolved(str("choice").ifBlank { "resolved" })
         else -> null
     }
+}
+
+/** The server-side approval choices, in preference order. */
+object ApprovalChoice {
+    const val ONCE = "once"      // approve just this one call
+    const val SESSION = "session" // approve similar for this run
+    const val ALWAYS = "always"
+    const val DENY = "deny"
 }
 
 // --- Session-history hydration (/api/sessions/{id}/messages) -----------------

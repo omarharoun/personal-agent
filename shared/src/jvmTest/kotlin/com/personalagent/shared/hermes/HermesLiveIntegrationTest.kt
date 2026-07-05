@@ -3,6 +3,7 @@ package com.personalagent.shared.hermes
 import com.personalagent.shared.store.InMemoryKeyValueStorage
 import io.ktor.client.engine.cio.CIO
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -75,6 +76,36 @@ class HermesLiveIntegrationTest {
                 println("live stream reply: $text")
                 assertTrue(text.isNotBlank(), "got streamed text")
                 assertTrue(events.last() is ChatStreamEvent.Done, "stream terminated with Done")
+            } finally { c.close() }
+        }
+    }
+
+    @Test
+    fun agent_run_approval_request_and_response_live() {
+        if (!enabled) { println("SKIP live test — set HERMES_BASE_URL + HERMES_API_KEY"); return }
+        runBlocking {
+            val scope = this
+            val c = client()
+            try {
+                val started = c.startRun(
+                    "Run this exact terminal command using the terminal tool: rm -rf /tmp/hermes_approval_itest_probe",
+                )
+                println("approval run: ${started.runId}")
+                val seen = mutableListOf<String>()
+                var approvedCommand: String? = null
+                c.runEvents(started.runId).collect { ev ->
+                    seen += ev::class.simpleName ?: "?"
+                    if (ev is RunEvent.ApprovalRequested) {
+                        approvedCommand = ev.command
+                        println("approval.request command='${ev.command}' choices=${ev.choices}")
+                        // Respond concurrently while the SSE stream stays open. DENY (safe).
+                        scope.launch { c.submitApproval(started.runId, com.personalagent.shared.hermes.ApprovalChoice.DENY) }
+                    }
+                }
+                println("approval-run events: $seen")
+                assertTrue(approvedCommand != null, "approval.request received")
+                assertTrue(seen.contains("Completed") || seen.contains("ApprovalResolved"),
+                    "run resumed to completion after the approval response")
             } finally { c.close() }
         }
     }

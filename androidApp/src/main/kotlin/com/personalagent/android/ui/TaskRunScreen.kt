@@ -19,14 +19,18 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.font.FontWeight
+import com.personalagent.shared.hermes.ApprovalChoice
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,10 +87,6 @@ fun TaskRunScreen(vm: TaskRunViewModel) {
         ) { Text(if (state.running) "Running…" else "Run task") }
 
         state.error?.let { ErrorText(it) }
-        state.approvalNote?.let {
-            Spacer(Modifier.height(10.dp))
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
-        }
 
         // Live activity card
         if (state.task.isNotBlank()) {
@@ -102,13 +102,29 @@ fun TaskRunScreen(vm: TaskRunViewModel) {
                         ActivityRow(spinning = true, text = "thinking…")
                     }
                     state.activities.forEach { a ->
-                        val label = "${toolEmoji(a.tool)} ${a.tool}" +
-                            (if (a.preview.isNotBlank()) " — ${a.preview}" else "")
-                        when {
-                            !a.done -> ActivityRow(spinning = true, text = label)
-                            a.error -> ActivityRow(icon = ActivityIcon.ERROR, text = "$label · failed")
-                            else -> ActivityRow(icon = ActivityIcon.OK, text = "$label · ${"%.1f".format(a.durationSec ?: 0.0)}s")
+                        if (a.tool == "approval") {
+                            ActivityRow(icon = ActivityIcon.OK, text = a.preview)
+                        } else {
+                            val label = "${toolEmoji(a.tool)} ${a.tool}" +
+                                (if (a.preview.isNotBlank()) " — ${a.preview}" else "")
+                            when {
+                                !a.done -> ActivityRow(spinning = true, text = label)
+                                a.error -> ActivityRow(icon = ActivityIcon.ERROR, text = "$label · failed")
+                                else -> ActivityRow(icon = ActivityIcon.OK, text = "$label · ${"%.1f".format(a.durationSec ?: 0.0)}s")
+                            }
                         }
+                    }
+
+                    // 🙋 Human-in-the-loop: the agent needs approval to proceed.
+                    state.pendingApproval?.let { ap ->
+                        Spacer(Modifier.height(10.dp))
+                        ApprovalCard(
+                            command = ap.command,
+                            choices = ap.choices,
+                            onApprove = { vm.respondApproval(ApprovalChoice.ONCE) },
+                            onApproveSession = { vm.respondApproval(ApprovalChoice.SESSION) },
+                            onDeny = { vm.respondApproval(ApprovalChoice.DENY) },
+                        )
                     }
 
                     state.reasoning?.let {
@@ -233,6 +249,68 @@ private fun DocumentPreview(doc: WrittenDocument, onBack: () -> Unit) {
                     MarkdownText(text = doc.content, color = MaterialTheme.colorScheme.onSurface)
                 } else {
                     Text(doc.content, fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        }
+    }
+}
+
+/** A clean human-in-the-loop card: "the agent wants to run X — approve?" */
+@Composable
+private fun ApprovalCard(
+    command: String,
+    choices: List<String>,
+    onApprove: () -> Unit,
+    onApproveSession: () -> Unit,
+    onDeny: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                "🙋 APPROVAL NEEDED",
+                style = HermesText.displayLabel.copy(fontSize = 11.sp),
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "The agent wants to run this — approve it?",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    command.ifBlank { "(command hidden)" },
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(10.dp),
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onApprove,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.tertiary,
+                        contentColor = MaterialTheme.colorScheme.onTertiary,
+                    ),
+                ) { Text("Approve", fontWeight = FontWeight.Bold) }
+                OutlinedButton(onClick = onDeny) { Text("Deny") }
+            }
+            if (choices.contains(ApprovalChoice.SESSION)) {
+                TextButton(onClick = onApproveSession, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Text("Approve for the rest of this task", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }

@@ -307,6 +307,24 @@ class HermesClient(
         }
     }
 
+    /**
+     * `POST /v1/runs/{id}/approval` — resolve a pending approval so the run
+     * continues. [choice] is one of [ApprovalChoice] (once/session/always/deny).
+     * Safe to call concurrently while [runEvents] is still streaming.
+     */
+    suspend fun submitApproval(runId: String, choice: String) {
+        val res = try {
+            client.post("${config.baseUrl}/v1/runs/$runId/approval") {
+                authHeaders()
+                contentType(ContentType.Application.Json)
+                setBody("{\"choice\":\"$choice\"}")
+            }
+        } catch (e: Throwable) {
+            throw HermesException(unreachable(), e)
+        }
+        if (!res.status.isSuccess()) throw statusException(res)
+    }
+
     /** `GET /api/sessions/{id}/messages` — full transcript incl. tool calls/results. */
     suspend fun sessionMessages(sessionId: String): List<HermesMessage> {
         val res = getAuthed("${config.baseUrl}/api/sessions/$sessionId/messages")
