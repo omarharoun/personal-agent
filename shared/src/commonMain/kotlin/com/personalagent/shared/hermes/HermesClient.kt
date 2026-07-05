@@ -227,6 +227,32 @@ class HermesClient(
             ?: throw HermesException("Hermes returned an empty reply. Check that its model provider is configured.")
     }
 
+    // --- Dashboard read models -----------------------------------------------
+
+    /** `GET /api/sessions` — the rich per-session activity/cost feed. */
+    suspend fun sessions(): List<HermesSessionCard> {
+        val res = getAuthed("${config.baseUrl}/api/sessions")
+        return json.decodeFromString(HermesSessionsPage.serializer(), res).data
+    }
+
+    /** `GET /health/detailed` — system status for the status card. */
+    suspend fun healthDetailed(): HermesHealthDetailed {
+        val res = getAuthed("${config.baseUrl}/health/detailed")
+        return json.decodeFromString(HermesHealthDetailed.serializer(), res)
+    }
+
+    /** `GET /v1/toolsets` — the agent's capabilities (emoji-labelled). */
+    suspend fun toolsets(): List<HermesToolset> {
+        val res = getAuthed("${config.baseUrl}/v1/toolsets")
+        return json.decodeFromString(HermesToolsetsResponse.serializer(), res).data
+    }
+
+    /** `GET /v1/skills` — installed skills (name/description/category). */
+    suspend fun skills(): List<HermesSkill> {
+        val res = getAuthed("${config.baseUrl}/v1/skills")
+        return json.decodeFromString(HermesSkillsResponse.serializer(), res).data
+    }
+
     // --- Reminders / jobs (/api/jobs) ----------------------------------------
 
     /** `GET /api/jobs` — the user's scheduled reminders (Hermes is source of truth). */

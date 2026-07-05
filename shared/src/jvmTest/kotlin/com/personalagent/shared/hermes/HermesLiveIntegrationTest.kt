@@ -80,6 +80,33 @@ class HermesLiveIntegrationTest {
     }
 
     @Test
+    fun dashboard_read_endpoints_return_real_data() {
+        if (!enabled) { println("SKIP live test — set HERMES_BASE_URL + HERMES_API_KEY"); return }
+        runBlocking {
+            val c = client()
+            try {
+                val health = c.healthDetailed()
+                assertTrue(health.isOk, "health/detailed ok")
+                println("live health/detailed: v${health.version} gateway=${health.gatewayState}")
+
+                val sessions = c.sessions()
+                println("live sessions: ${sessions.size}; usage=${com.personalagent.shared.hermes.UsageSummary.from(sessions)}")
+                assertTrue(sessions.isNotEmpty(), "has session activity")
+                assertTrue(sessions.first().displayTitle.isNotBlank(), "session has a display title")
+
+                val toolsets = c.toolsets()
+                println("live toolsets: ${toolsets.size}, enabled=${toolsets.count { it.enabled }}")
+                assertTrue(toolsets.size >= 20, "toolsets present")
+                assertTrue(toolsets.any { it.label.isNotBlank() }, "toolsets have emoji labels")
+
+                val skills = c.skills()
+                println("live skills: ${skills.size}, categories=${skills.mapNotNull { it.category }.distinct().size}")
+                assertTrue(skills.size >= 50, "skills present")
+            } finally { c.close() }
+        }
+    }
+
+    @Test
     fun complete_nonstreaming_returns_text() {
         // Validates the reflection/notes/goals one-shot path (non-streaming POST),
         // the fix for the "stuck on Reflecting…" hang.

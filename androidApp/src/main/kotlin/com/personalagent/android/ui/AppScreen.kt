@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Flag
@@ -89,7 +90,7 @@ import com.personalagent.shared.cloud.CloudProvider
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
-private enum class Surface { CONVERSATION, SETTINGS, SUPPORT, NOTES, REMINDERS, GOALS, REFLECTION }
+private enum class Surface { DASHBOARD, CONVERSATION, SETTINGS, SUPPORT, NOTES, REMINDERS, GOALS, REFLECTION, TASKS, SKILLS }
 
 /**
  * The app shell — an Open-WebUI-style chat surface: a slide-out navigation drawer
@@ -124,8 +125,10 @@ fun AppScreen(
         viewModel(factory = GoalsViewModel.Factory(container))
     val reflectionVm: ReflectionViewModel =
         viewModel(factory = ReflectionViewModel.Factory(container))
+    val dashboardVm: DashboardViewModel =
+        viewModel(factory = DashboardViewModel.Factory(container))
 
-    var surface by remember { mutableStateOf(Surface.CONVERSATION) }
+    var surface by remember { mutableStateOf(Surface.DASHBOARD) }
     val snackbar = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -154,6 +157,7 @@ fun AppScreen(
             AppDrawer(
                 convoVm = convoVm,
                 currentSurface = surface,
+                onOpenDashboard = { dashboardVm.refresh(); surface = Surface.DASHBOARD; closeDrawer() },
                 onNewChat = { convoVm.newChat(); surface = Surface.CONVERSATION; closeDrawer() },
                 onSelectChat = { id -> convoVm.selectChat(id); surface = Surface.CONVERSATION; closeDrawer() },
                 onOpenNotes = { surface = Surface.NOTES; closeDrawer() },
@@ -166,24 +170,36 @@ fun AppScreen(
         },
     ) {
         when (surface) {
-            Surface.SETTINGS -> SubScreen("Settings", { surface = Surface.CONVERSATION }, snackbar) {
+            Surface.DASHBOARD -> DashboardScreen(
+                vm = dashboardVm,
+                onOpenDrawer = { scope.launch { drawerState.open() } },
+                nav = DashboardNav(
+                    onChat = { surface = Surface.CONVERSATION },
+                    onReminders = { remindersVm.refresh(); surface = Surface.REMINDERS },
+                    onGoals = { surface = Surface.GOALS },
+                    onReflection = { surface = Surface.REFLECTION },
+                    onNotes = { surface = Surface.NOTES },
+                ),
+            )
+            Surface.SETTINGS -> SubScreen("Settings", { surface = Surface.DASHBOARD }, snackbar) {
                 SettingsScreen(container, themeMode, onThemeModeChange, onDisconnect = onDisconnect)
             }
-            Surface.SUPPORT -> SubScreen("Support", { surface = Surface.CONVERSATION }, snackbar) {
+            Surface.SUPPORT -> SubScreen("Support", { surface = Surface.DASHBOARD }, snackbar) {
                 SafetyScreen(safetyVm, snackbar)
             }
-            Surface.NOTES -> SubScreen("Notes", { surface = Surface.CONVERSATION }, snackbar) {
+            Surface.NOTES -> SubScreen("Notes", { surface = Surface.DASHBOARD }, snackbar) {
                 NotesScreen(notesVm)
             }
-            Surface.REMINDERS -> SubScreen("Reminders", { surface = Surface.CONVERSATION }, snackbar) {
+            Surface.REMINDERS -> SubScreen("Reminders", { surface = Surface.DASHBOARD }, snackbar) {
                 RemindersScreen(remindersVm)
             }
-            Surface.GOALS -> SubScreen("Goals", { surface = Surface.CONVERSATION }, snackbar) {
+            Surface.GOALS -> SubScreen("Goals", { surface = Surface.DASHBOARD }, snackbar) {
                 GoalsScreen(goalsVm)
             }
-            Surface.REFLECTION -> SubScreen("Reflection", { surface = Surface.CONVERSATION }, snackbar) {
+            Surface.REFLECTION -> SubScreen("Reflection", { surface = Surface.DASHBOARD }, snackbar) {
                 ReflectionScreen(reflectionVm)
             }
+            Surface.TASKS, Surface.SKILLS -> SubScreen("Coming soon", { surface = Surface.DASHBOARD }, snackbar) {}
             Surface.CONVERSATION -> ConversationContent(
                 convoVm = convoVm,
                 container = container,
@@ -200,6 +216,7 @@ fun AppScreen(
 private fun AppDrawer(
     convoVm: ConversationViewModel,
     currentSurface: Surface,
+    onOpenDashboard: () -> Unit,
     onNewChat: () -> Unit,
     onSelectChat: (Long) -> Unit,
     onOpenNotes: () -> Unit,
@@ -267,6 +284,12 @@ private fun AppDrawer(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(8.dp))
 
+            NavigationDrawerItem(
+                icon = { Icon(Icons.Filled.Dashboard, null) },
+                label = { Text("Dashboard") },
+                selected = currentSurface == Surface.DASHBOARD,
+                onClick = onOpenDashboard,
+            )
             NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.Description, null) },
                 label = { Text("Notes") },
