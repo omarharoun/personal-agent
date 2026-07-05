@@ -33,6 +33,18 @@ connection config (URL, key) and a memory-scope key, sealed on-device.
 > [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) and the per-phase notes in
 > [`docs/PHASE0.md`](docs/PHASE0.md), [`docs/PHASE1.md`](docs/PHASE1.md).
 
+## Design
+
+The UI adopts the **Hermes Agent web dashboard's "Hermes Teal" look** so the Life
+Agent feels like a natural extension of Hermes: a dark-teal canvas (`#041C1C`)
+with warm-cream text/accent (`#FFE6CB`), thin cream-tinted card borders, small
+(8px) radii, cream-filled buttons, and the signature UPPERCASE wide-tracked
+"display" labels + monospace metadata. These design tokens are **adapted from the
+MIT-licensed** Hermes frontend + `@nous-research/ui` (© 2025 Nous Research),
+re-implemented natively in Compose — no Hermes code/CSS/fonts/logo are bundled.
+See [`ATTRIBUTION.md`](ATTRIBUTION.md). A matching warm-paper light theme is
+included.
+
 ## Framework choice & why
 
 **Kotlin Multiplatform, continuing this repo.** This codebase was already a

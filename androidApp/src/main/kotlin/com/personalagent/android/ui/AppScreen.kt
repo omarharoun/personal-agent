@@ -79,9 +79,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.personalagent.android.AppContainer
+import com.personalagent.android.ui.theme.HermesText
 import com.personalagent.android.ui.theme.ThemeMode
 import com.personalagent.shared.cloud.CloudProvider
 import kotlinx.coroutines.launch
@@ -206,10 +208,9 @@ private fun AppDrawer(
     ) {
         Column(Modifier.fillMaxSize().padding(12.dp)) {
             Text(
-                "Life Agent",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                "LIFE AGENT",
+                style = HermesText.displayLarge,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 12.dp),
             )
 
@@ -234,8 +235,8 @@ private fun AppDrawer(
 
             Spacer(Modifier.height(16.dp))
             Text(
-                "Recent",
-                style = MaterialTheme.typography.labelMedium,
+                "RECENT",
+                style = HermesText.displayLabel,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
             )
@@ -308,7 +309,13 @@ private fun SubScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title) },
+                title = {
+                    Text(
+                        title.uppercase(),
+                        style = HermesText.displayLabel.copy(fontSize = 15.sp),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -364,10 +371,9 @@ private fun ConversationContent(
                 },
                 title = {
                     Text(
-                        "Life Agent",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        "LIFE AGENT",
+                        style = HermesText.displayLabel.copy(fontSize = 15.sp),
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 },
                 actions = {
@@ -437,13 +443,14 @@ private fun MessageRow(msg: Message) {
     when (msg.role) {
         Message.Role.USER -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 modifier = Modifier.widthIn(max = 340.dp),
             ) {
                 Text(
                     text = msg.text,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 )
