@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Warm "bone" cream — matches the Compose light background. -->
-    <color name="pa_window_background">#F0EEE6</color>
+    <!-- Hermes-teal window background (the app is dark-by-default). Compose paints
+         its own background over this; this just avoids a light launch flash. -->
+    <color name="pa_window_background">#041C1C</color>
 </resources>

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -25,6 +26,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,12 +37,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.personalagent.android.ui.theme.HermesText
 
 /**
  * The connect front door: the Connect form, with a toggle to a plain-language
@@ -86,6 +91,25 @@ fun ConnectScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     var keyVisible by remember { mutableStateOf(false) }
 
+    // High-contrast field styling: a distinct fill + a clearly-visible cream-tinted
+    // border so inputs stand off the dark page, with readable label/placeholder/text.
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+        focusedBorderColor = MaterialTheme.colorScheme.primary,
+        // Clearly-visible cream-tinted border so the field is unmistakable even
+        // unfocused (the "very dim input" fix), on top of its distinct fill.
+        unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+        focusedLabelColor = MaterialTheme.colorScheme.primary,
+        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        cursorColor = MaterialTheme.colorScheme.primary,
+    )
+
     Column(
         Modifier
             .fillMaxSize()
@@ -97,6 +121,7 @@ fun ConnectScreen(
         Text(
             "Connect your Life Agent",
             style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
         )
         Spacer(Modifier.height(8.dp))
@@ -117,6 +142,7 @@ fun ConnectScreen(
             placeholder = { Text("http://192.168.1.20:8642") },
             singleLine = true,
             enabled = !state.testing,
+            colors = fieldColors,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -135,6 +161,7 @@ fun ConnectScreen(
             singleLine = true,
             enabled = !state.testing,
             visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            colors = fieldColors,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
             trailingIcon = {
                 TextButton(onClick = { keyVisible = !keyVisible }) {
@@ -158,21 +185,44 @@ fun ConnectScreen(
             )
         }
 
+        // Plaintext-remote is a calm, small inline note — honest, not alarming.
         state.plaintextWarning?.let { warn ->
-            Spacer(Modifier.height(16.dp))
-            InfoBox(text = warn, tone = InfoTone.WARNING)
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(
+                    Icons.Filled.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.height(15.dp),
+                )
+                Text(
+                    warn,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
 
+        // A connection error IS important — keep it a clear (compact) box.
         state.error?.let { err ->
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
             InfoBox(text = err, tone = InfoTone.ERROR)
         }
 
         Spacer(Modifier.height(24.dp))
+        // Prominent, unmistakable primary action: SOLID cream fill + dark uppercase
+        // label. Colors are forced (not just role-derived) so it can never resolve
+        // to a low-contrast/disabled-looking state on the connect surface.
         Button(
             onClick = { vm.testAndConnect(onConnected) },
             enabled = !state.testing,
-            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f),
+            ),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
         ) {
             if (state.testing) {
                 CircularProgressIndicator(
@@ -180,10 +230,17 @@ fun ConnectScreen(
                     strokeWidth = 2.dp,
                     color = MaterialTheme.colorScheme.onPrimary,
                 )
-                Spacer(Modifier.height(0.dp))
-                Text("  Testing…")
+                Text(
+                    "  TESTING…",
+                    style = HermesText.displayLabel.copy(fontSize = 13.sp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
             } else {
-                Text("Test & Connect")
+                Text(
+                    "TEST & CONNECT",
+                    style = HermesText.displayLabel.copy(fontSize = 13.sp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
             }
         }
 

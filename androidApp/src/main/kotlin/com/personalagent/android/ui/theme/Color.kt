@@ -21,8 +21,14 @@ val HermesSecondary = Color(0xFF132826)  // midground 6%
 val HermesMuted = Color(0xFF182C2A)      // midground 8% (--color-muted)
 val HermesAccent = Color(0xFF1D302E)     // midground 10% (--color-accent)
 val HermesCream = Color(0xFFFFE6CB)      // --midground (primary text + accent)
-val HermesCreamDim = Color(0xFFA79F8D)   // midground ~65% — secondary text
-val HermesBorder = Color(0xFF2A3A36)     // midground 15% over background (--color-border)
+// Secondary text: cream at ~80% blended over the dark canvas — kept bright enough
+// for WCAG-AA on #041C1C (the earlier #A79F8D was too muted / failed AA).
+val HermesCreamDim = Color(0xFFCDBFA8)
+// Borders/dividers: a visible warm line so cards read as distinct panels — a bit
+// brighter than the near-invisible earlier #2A3A36, but restrained for cards.
+val HermesBorder = Color(0xFF3C4C46)
+// A slightly darker field fill so inputs stand off the page background.
+val HermesField = Color(0xFF0A2321)
 
 // Semantic accents (verbatim from the web tokens).
 val HermesEmerald = Color(0xFF34D399)    // --series-output-token (positive accent)

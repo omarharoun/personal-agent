@@ -10,11 +10,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.personalagent.android.ui.theme.PersonalAgentTheme
 import com.personalagent.android.ui.theme.ThemeMode
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.personalagent.android.ui.AppScreen
@@ -50,46 +54,56 @@ class MainActivity : ComponentActivity() {
             }
 
             PersonalAgentTheme(darkTheme = dark) {
-                // Ask for notification permission once (Android 13+/API 33).
-                val permissionLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.RequestPermission(),
-                ) { /* result handled by the OS; notifier no-ops if denied */ }
+                // Paint the whole window with the ACTIVE scheme's background so every
+                // screen (incl. the Connect screen, which has no Scaffold) is always
+                // self-consistent — never Compose scheme colors on the XML window
+                // background (the bug that made cream text/buttons wash out on a
+                // light-mode phone). This is the single source of truth for the bg.
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
+                ) {
+                    // Ask for notification permission once (Android 13+/API 33).
+                    val permissionLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.RequestPermission(),
+                    ) { /* result handled by the OS; notifier no-ops if denied */ }
 
-                LaunchedEffect(Unit) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    LaunchedEffect(Unit) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
                     }
-                }
 
-                // 🔒 Path A (bring-your-own-Hermes): the app trusts ONLY the Hermes
-                // the user configures. Until they've connected one, the Connect
-                // screen is the entire app — there is no default/hidden backend.
-                var connected by remember {
-                    mutableStateOf(container.isHermesConfigured)
-                }
-                if (!connected) {
-                    val connectVm: ConnectViewModel =
-                        viewModel(factory = ConnectViewModel.Factory(container))
-                    ConnectFlow(vm = connectVm, onConnected = {
-                        connected = true
-                        // Start delivering reminders now that we have a Hermes.
-                        com.personalagent.android.notification.ReminderScheduling.ensurePeriodic(this@MainActivity)
-                    })
-                } else {
-                    val vm: AppViewModel = viewModel(factory = AppViewModel.Factory(container))
-                    // 🔒 Step 7: consent-first crisis-safety surface (autonomous action disabled).
-                    val safetyVm: SafetyViewModel =
-                        viewModel(factory = SafetyViewModel.Factory(container))
-                    AppScreen(
-                        vm, safetyVm, container, themeMode, onThemeModeChange,
-                        onDisconnect = {
-                            // 🔒 Trust boundary: forget the configured backend (keep the
-                            // memory-scope key so reconnecting lands in the same memory).
-                            container.hermesConfigStore.disconnect()
-                            com.personalagent.android.notification.ReminderScheduling.cancelAll(this@MainActivity)
-                            connected = false
-                        },
-                    )
+                    // 🔒 Path A (bring-your-own-Hermes): the app trusts ONLY the Hermes
+                    // the user configures. Until they've connected one, the Connect
+                    // screen is the entire app — there is no default/hidden backend.
+                    var connected by remember {
+                        mutableStateOf(container.isHermesConfigured)
+                    }
+                    if (!connected) {
+                        val connectVm: ConnectViewModel =
+                            viewModel(factory = ConnectViewModel.Factory(container))
+                        ConnectFlow(vm = connectVm, onConnected = {
+                            connected = true
+                            // Start delivering reminders now that we have a Hermes.
+                            com.personalagent.android.notification.ReminderScheduling.ensurePeriodic(this@MainActivity)
+                        })
+                    } else {
+                        val vm: AppViewModel = viewModel(factory = AppViewModel.Factory(container))
+                        // 🔒 Step 7: consent-first crisis-safety surface (autonomous action disabled).
+                        val safetyVm: SafetyViewModel =
+                            viewModel(factory = SafetyViewModel.Factory(container))
+                        AppScreen(
+                            vm, safetyVm, container, themeMode, onThemeModeChange,
+                            onDisconnect = {
+                                // 🔒 Trust boundary: forget the configured backend (keep the
+                                // memory-scope key so reconnecting lands in the same memory).
+                                container.hermesConfigStore.disconnect()
+                                com.personalagent.android.notification.ReminderScheduling.cancelAll(this@MainActivity)
+                                connected = false
+                            },
+                        )
+                    }
                 }
             }
         }
