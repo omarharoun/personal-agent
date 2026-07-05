@@ -65,6 +65,16 @@ fun ReflectionScreen(vm: ReflectionViewModel) {
             modifier = Modifier.fillMaxWidth(),
         ) { Text(if (state.loading) "Reflecting…" else "Reflect now") }
 
+        // Surface any failure so a tap never silently does nothing.
+        state.message?.let { msg ->
+            Text(
+                msg,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
+
         if (state.reflection.isNotBlank()) {
             Card(
                 Modifier.fillMaxWidth().padding(top = 16.dp),

@@ -193,16 +193,38 @@ class HermesClient(
     }
 
     /**
-     * Non-streaming convenience: send [messages] and collect the whole reply as
-     * one string. Built on [streamChat], so it shares the same headers, memory
-     * scope, and error mapping. Used for one-shot asks (note capture, nudges).
+     * One-shot ask: a plain NON-STREAMING `POST /v1/chat/completions` that returns
+     * the whole reply as a string. Used by reflection / notes / goals — the SSE
+     * path is only for the live chat transcript. Doing this as a normal request
+     * (not by draining an SSE stream) makes one-shot calls simple and reliable:
+     * it can't get stuck mid-stream, and any failure maps to a clear [HermesException].
      */
     suspend fun complete(messages: List<HermesWireMessage>, sessionId: String? = null): String {
-        val sb = StringBuilder()
-        streamChat(messages, sessionId).collect { ev ->
-            if (ev is ChatStreamEvent.Delta) sb.append(ev.text)
+        val request = HermesChatRequest(
+            model = HermesConfig.DEFAULT_MODEL_ID,
+            messages = messages,
+            stream = false,
+        )
+        val res = try {
+            client.post(config.chatCompletions) {
+                authHeaders()
+                contentType(ContentType.Application.Json)
+                if (!sessionId.isNullOrBlank()) headers { append(SESSION_ID_HEADER, sessionId) }
+                setBody(json.encodeToString(HermesChatRequest.serializer(), request))
+            }
+        } catch (e: HttpRequestTimeoutException) {
+            throw HermesException("Hermes took too long to respond. Try again in a moment.", e)
+        } catch (e: Throwable) {
+            throw HermesException(unreachable(), e)
         }
-        return sb.toString().trim()
+        if (!res.status.isSuccess()) throw statusException(res)
+        val parsed = try {
+            json.decodeFromString(HermesChatResponse.serializer(), res.bodyAsText())
+        } catch (e: Throwable) {
+            throw HermesException("Hermes returned an unexpected response.", e)
+        }
+        return parsed.choices.firstOrNull()?.message?.content?.trim()
+            ?: throw HermesException("Hermes returned an empty reply. Check that its model provider is configured.")
     }
 
     // --- Reminders / jobs (/api/jobs) ----------------------------------------

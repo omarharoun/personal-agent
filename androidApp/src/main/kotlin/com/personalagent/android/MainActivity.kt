@@ -28,9 +28,20 @@ import com.personalagent.android.ui.connect.ConnectFlow
 import com.personalagent.android.ui.connect.ConnectViewModel
 
 class MainActivity : ComponentActivity() {
+
+    // Deep-link target requested by a notification tap (e.g. "reminders").
+    private val openDestination = mutableStateOf<String?>(null)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openDestination.value = intent.getStringExtra(EXTRA_OPEN)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val container = (application as PersonalAgentApp).container
+        openDestination.value = intent?.getStringExtra(EXTRA_OPEN)
 
         setContent {
             // Appearance preference (dark by default). Persisted in a tiny prefs file
@@ -102,10 +113,19 @@ class MainActivity : ComponentActivity() {
                                 com.personalagent.android.notification.ReminderScheduling.cancelAll(this@MainActivity)
                                 connected = false
                             },
+                            pendingDestination = openDestination.value,
+                            onDestinationHandled = { openDestination.value = null },
                         )
                     }
                 }
             }
         }
+    }
+
+    companion object {
+        /** Intent extra naming the surface to open on launch (from a notification). */
+        const val EXTRA_OPEN = "com.personalagent.android.OPEN"
+        const val DEST_REMINDERS = "reminders"
+        const val DEST_REFLECTION = "reflection"
     }
 }

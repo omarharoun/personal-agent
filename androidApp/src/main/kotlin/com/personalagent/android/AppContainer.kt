@@ -14,6 +14,7 @@ import com.personalagent.shared.hermes.HermesConfigStore
 import com.personalagent.shared.hermes.HermesReminderPoller
 import com.personalagent.shared.hermes.NotifiedReminderStore
 import com.personalagent.shared.hermes.ReflectionStore
+import com.personalagent.shared.hermes.ReminderHistoryStore
 import com.personalagent.shared.reminder.ReminderService
 import com.personalagent.shared.safety.CrisisRecognizer
 import com.personalagent.shared.safety.CrisisResourceProvider
@@ -80,6 +81,13 @@ class AppContainer(context: Context) {
 
     /** Notify-once markers (opaque job-id@run-time keys only — no reminder text). */
     val notifiedReminderStore: NotifiedReminderStore = NotifiedReminderStore(encrypted("reminder_notified"))
+
+    /**
+     * Local reminder history (id + short text + time) so fired reminders stay
+     * visible even after Hermes cleans up the one-shot job. Non-sensitive schedule
+     * metadata, sealed at rest.
+     */
+    val reminderHistoryStore: ReminderHistoryStore = ReminderHistoryStore(encrypted("reminder_history"))
 
     /** Reminder poller over the saved connection, or null if not connected. */
     fun reminderPollerOrNull(): Pair<HermesClient, HermesReminderPoller>? {

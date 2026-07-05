@@ -111,6 +111,8 @@ fun AppScreen(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     onDisconnect: () -> Unit,
+    pendingDestination: String? = null,
+    onDestinationHandled: () -> Unit = {},
 ) {
     val convoVm: ConversationViewModel =
         viewModel(factory = ConversationViewModel.Factory(container))
@@ -133,6 +135,14 @@ fun AppScreen(
         appState.message?.let {
             snackbar.showSnackbar(it)
             vm.consumeMessage()
+        }
+    }
+
+    // Deep-link from a notification tap → open the requested surface.
+    LaunchedEffect(pendingDestination) {
+        when (pendingDestination) {
+            "reminders" -> { remindersVm.refresh(); surface = Surface.REMINDERS; onDestinationHandled() }
+            "reflection" -> { surface = Surface.REFLECTION; onDestinationHandled() }
         }
     }
 

@@ -1,5 +1,6 @@
 package com.personalagent.android.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -20,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,9 +31,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.personalagent.android.ui.theme.HermesText
+import com.personalagent.shared.hermes.ReminderStatus
+import com.personalagent.shared.hermes.ReminderView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -39,9 +46,9 @@ import java.util.Locale
 private val fmt = SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault())
 
 /**
- * Reminders, backed by the user's Hermes (`/api/jobs`). Create a one-shot
- * reminder here or just ask in chat ("remind me to call my sister Sunday") — both
- * land in the same place, and the app delivers a local notification when due.
+ * Reminders, backed by the user's Hermes (`/api/jobs`) + a local history so
+ * past/fired reminders stay visible with a clear status. Create one here or just
+ * ask in chat — both land here, delivered as a local notification when due.
  */
 @Composable
 fun RemindersScreen(vm: RemindersViewModel) {
@@ -115,29 +122,67 @@ fun RemindersScreen(vm: RemindersViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(state.reminders, key = { it.id }) { r ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(r.label, fontWeight = FontWeight.SemiBold)
-                                val whenText = r.nextRunAtMillis?.let { fmt.format(Date(it)) }
-                                    ?: r.scheduleDisplay ?: "scheduled"
-                                Text(
-                                    whenText,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(top = 2.dp),
-                                )
-                            }
-                            IconButton(onClick = { vm.delete(r.id) }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Cancel reminder")
-                            }
-                        }
-                    }
+                    ReminderCard(r, onDismiss = { vm.dismiss(r) })
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ReminderCard(r: ReminderView, onDismiss: () -> Unit) {
+    val done = r.status == ReminderStatus.DONE
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusBadge(r.status)
+                    Text(
+                        r.text,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (done) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                val whenText = r.whenMillis?.let { fmt.format(Date(it)) } ?: "scheduled"
+                Text(
+                    whenText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = if (r.live) "Cancel reminder" else "Clear from history",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusBadge(status: ReminderStatus) {
+    val (label, color) = when (status) {
+        ReminderStatus.UPCOMING -> "UPCOMING" to MaterialTheme.colorScheme.tertiary
+        ReminderStatus.DUE_NOW -> "DUE NOW" to MaterialTheme.colorScheme.primary
+        ReminderStatus.DONE -> "DONE" to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, color.copy(alpha = 0.5f)),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Text(
+            label,
+            style = HermesText.displayLabel.copy(fontSize = 10.sp),
+            color = color,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+        )
     }
 }

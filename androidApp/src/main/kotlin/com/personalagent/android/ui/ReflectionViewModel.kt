@@ -13,11 +13,13 @@ import com.personalagent.shared.hermes.LifePrompts
 import com.personalagent.shared.hermes.ReflectionCadence
 import com.personalagent.shared.hermes.ReflectionStore
 import com.personalagent.shared.util.SystemClock
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 /**
  * Phase 4 reflection. Owns the cadence setting (one-tap Off/Weekly/Monthly) and
@@ -55,19 +57,27 @@ class ReflectionViewModel(
     fun reflectNow() {
         val cadence = _state.value.cadence.takeIf { it != ReflectionCadence.OFF }
             ?: ReflectionCadence.WEEKLY // allow a one-off even when scheduling is off
-        _state.update { it.copy(loading = true) }
+        _state.update { it.copy(loading = true, message = null) }
         viewModelScope.launch {
             try {
-                val text = hermes.complete(
-                    listOf(HermesWireMessage("user", LifePrompts.reflection(cadence.promptWord))),
-                    sessionId = "lifeagent-reflection",
-                )
+                // Hard timeout so the button can NEVER stick on "Reflecting…".
+                val text = withTimeout(90_000) {
+                    hermes.complete(
+                        listOf(HermesWireMessage("user", LifePrompts.reflection(cadence.promptWord))),
+                        sessionId = "lifeagent-reflection",
+                    )
+                }
                 store.markShown(SystemClock.nowMillis())
-                _state.update { it.copy(reflection = text, loading = false) }
+                _state.update { it.copy(reflection = text) }
+            } catch (e: TimeoutCancellationException) {
+                _state.update { it.copy(message = "Reflection timed out. Check your connection to Hermes and try again.") }
             } catch (e: HermesException) {
-                _state.update { it.copy(loading = false, message = e.message) }
+                _state.update { it.copy(message = e.message) }
             } catch (e: Throwable) {
-                _state.update { it.copy(loading = false, message = e.message ?: "Couldn't load a reflection.") }
+                _state.update { it.copy(message = e.message ?: "Couldn't load a reflection.") }
+            } finally {
+                // Always clear the spinner, whatever happened.
+                _state.update { it.copy(loading = false) }
             }
         }
     }

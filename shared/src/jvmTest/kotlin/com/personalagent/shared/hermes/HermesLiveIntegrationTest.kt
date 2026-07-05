@@ -80,6 +80,24 @@ class HermesLiveIntegrationTest {
     }
 
     @Test
+    fun complete_nonstreaming_returns_text() {
+        // Validates the reflection/notes/goals one-shot path (non-streaming POST),
+        // the fix for the "stuck on Reflecting…" hang.
+        if (!enabled) { println("SKIP live test — set HERMES_BASE_URL + HERMES_API_KEY"); return }
+        runBlocking {
+            val c = client()
+            try {
+                val reply = c.complete(
+                    listOf(HermesWireMessage("user", "Reply with exactly: complete ok")),
+                    sessionId = "lifeagent-reflection",
+                )
+                println("live complete() reply: $reply")
+                assertTrue(reply.isNotBlank(), "complete() returned text")
+            } finally { c.close() }
+        }
+    }
+
+    @Test
     fun jobs_create_list_delete_roundtrip() {
         if (!enabled) { println("SKIP live test — set HERMES_BASE_URL + HERMES_API_KEY"); return }
         runBlocking {

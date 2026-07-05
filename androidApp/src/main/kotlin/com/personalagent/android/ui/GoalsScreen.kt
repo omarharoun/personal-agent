@@ -83,33 +83,6 @@ fun GoalsScreen(vm: GoalsViewModel) {
             modifier = Modifier.padding(top = 8.dp),
         ) { Text("Add goal") }
 
-        // --- Personalized nudge -------------------------------------------------
-        Spacer(Modifier.height(20.dp))
-        Text("Encouragement", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "A nudge grounded in what your agent actually remembers about you.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedButton(
-            onClick = { vm.getNudge() },
-            enabled = !state.loadingNudge,
-            modifier = Modifier.padding(top = 8.dp),
-        ) { Text(if (state.loadingNudge) "Thinking…" else "Get a nudge") }
-
-        if (state.nudge.isNotBlank()) {
-            Card(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-            ) {
-                MarkdownText(
-                    text = state.nudge,
-                    modifier = Modifier.padding(16.dp),
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-            }
-        }
-
         // --- Current goals ------------------------------------------------------
         Spacer(Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -27,8 +27,6 @@ class GoalsViewModel(
     data class State(
         val goalsSummary: String = "",
         val loadingGoals: Boolean = false,
-        val nudge: String = "",
-        val loadingNudge: Boolean = false,
         val saving: Boolean = false,
         val message: String? = null,
     )
@@ -65,20 +63,6 @@ class GoalsViewModel(
                 _state.update { it.copy(saving = false, message = e.message) }
             } catch (e: Throwable) {
                 _state.update { it.copy(saving = false, message = e.message ?: "Couldn't save the goal.") }
-            }
-        }
-    }
-
-    fun getNudge() {
-        _state.update { it.copy(loadingNudge = true) }
-        viewModelScope.launch {
-            try {
-                val nudge = hermes.complete(user(LifePrompts.personalizedNudge()), session)
-                _state.update { it.copy(nudge = nudge, loadingNudge = false) }
-            } catch (e: HermesException) {
-                _state.update { it.copy(loadingNudge = false, message = e.message) }
-            } catch (e: Throwable) {
-                _state.update { it.copy(loadingNudge = false, message = e.message ?: "Couldn't get a nudge.") }
             }
         }
     }

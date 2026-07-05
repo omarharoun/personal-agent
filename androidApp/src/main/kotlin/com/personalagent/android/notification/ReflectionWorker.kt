@@ -65,6 +65,7 @@ object ReflectionNotifier {
         ensureChannel(context)
         val open = Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(MainActivity.EXTRA_OPEN, MainActivity.DEST_REFLECTION)
         val pending = PendingIntent.getActivity(
             context, 0, open,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,

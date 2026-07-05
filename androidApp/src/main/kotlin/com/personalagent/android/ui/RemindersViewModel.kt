@@ -8,7 +8,10 @@ import com.personalagent.android.AppContainer
 import com.personalagent.android.notification.ReminderScheduling
 import com.personalagent.shared.hermes.HermesClient
 import com.personalagent.shared.hermes.HermesException
-import com.personalagent.shared.hermes.HermesJob
+import com.personalagent.shared.hermes.ReminderHistory
+import com.personalagent.shared.hermes.ReminderHistoryStore
+import com.personalagent.shared.hermes.ReminderRecord
+import com.personalagent.shared.hermes.ReminderView
 import com.personalagent.shared.hermes.oneShotScheduleMinutes
 import com.personalagent.shared.util.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,19 +21,19 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Reminders backed by the user's Hermes (`/api/jobs`) — Hermes is the source of
- * truth. The app creates one-shot reminders here, lists the live jobs, and
- * cancels them; delivery is by polling + local notification (see
- * [ReminderScheduling] / ReminderPollWorker). The app keeps no second copy of the
- * reminder text.
+ * Reminders backed by the user's Hermes (`/api/jobs`), with a local history so
+ * fired/past reminders stay visible with a clear status instead of vanishing.
+ * Hermes is the source of truth for live jobs; the local [ReminderHistoryStore]
+ * (non-sensitive metadata) preserves reminders after Hermes cleans up the one-shot.
  */
 class RemindersViewModel(
     private val hermes: HermesClient,
+    private val history: ReminderHistoryStore,
     private val appContext: Context,
 ) : ViewModel() {
 
     data class State(
-        val reminders: List<HermesJob> = emptyList(),
+        val reminders: List<ReminderView> = emptyList(),
         val loading: Boolean = true,
         val error: String? = null,
         val message: String? = null,
@@ -44,13 +47,22 @@ class RemindersViewModel(
     fun refresh() {
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
+            val now = SystemClock.nowMillis()
             try {
-                val jobs = hermes.listJobs().sortedBy { it.nextRunAtMillis ?: Long.MAX_VALUE }
-                _state.update { it.copy(reminders = jobs, loading = false) }
-            } catch (e: HermesException) {
-                _state.update { it.copy(loading = false, error = e.message) }
+                val live = hermes.listJobs()
+                // Keep history in sync so these reminders survive server-side cleanup.
+                live.forEach { j ->
+                    history.upsert(ReminderRecord(j.id, j.label, j.nextRunAtMillis ?: now))
+                }
+                val views = ReminderHistory.merge(live, history.all(), now)
+                _state.update { it.copy(reminders = views, loading = false, error = null) }
             } catch (e: Throwable) {
-                _state.update { it.copy(loading = false, error = e.message ?: "Couldn't load reminders.") }
+                // Even offline, still show history so the list never goes blank.
+                val views = ReminderHistory.merge(emptyList(), history.all(), now)
+                val msg = (e as? HermesException)?.message ?: e.message ?: "Couldn't reach Hermes."
+                _state.update {
+                    it.copy(reminders = views, loading = false, error = if (views.isEmpty()) msg else null)
+                }
             }
         }
     }
@@ -71,7 +83,8 @@ class RemindersViewModel(
                     schedule = oneShotScheduleMinutes(now, targetMillis),
                     prompt = "Remind the user: $text",
                 )
-                // Punctual local poll at the due time + an immediate refresh poll.
+                // Persist to history immediately so it survives server-side cleanup.
+                history.upsert(ReminderRecord(job.id, text, job.nextRunAtMillis ?: targetMillis))
                 job.nextRunAtMillis?.let { ReminderScheduling.pollAt(appContext, it + 5_000L, job.id) }
                 ReminderScheduling.ensurePeriodic(appContext)
                 _state.update { it.copy(message = "Reminder set") }
@@ -84,13 +97,15 @@ class RemindersViewModel(
         }
     }
 
-    fun delete(id: String) {
+    /** Cancel a live reminder (server-side) or clear a past one from history. */
+    fun dismiss(view: ReminderView) {
         viewModelScope.launch {
             try {
-                hermes.deleteJob(id)
+                if (view.live) runCatching { hermes.deleteJob(view.id) }
+                history.remove(view.id)
                 refresh()
             } catch (e: Throwable) {
-                _state.update { it.copy(message = e.message ?: "Couldn't cancel the reminder.") }
+                _state.update { it.copy(message = e.message ?: "Couldn't update the reminder.") }
             }
         }
     }
@@ -107,7 +122,7 @@ class RemindersViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             val client = container.hermesClientOrNull()
                 ?: error("Hermes is not configured — Connect screen should gate this.")
-            return RemindersViewModel(client, container.androidContext) as T
+            return RemindersViewModel(client, container.reminderHistoryStore, container.androidContext) as T
         }
     }
 }
