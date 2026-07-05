@@ -127,6 +127,8 @@ fun AppScreen(
         viewModel(factory = ReflectionViewModel.Factory(container))
     val dashboardVm: DashboardViewModel =
         viewModel(factory = DashboardViewModel.Factory(container))
+    val taskVm: TaskRunViewModel =
+        viewModel(factory = TaskRunViewModel.Factory(container))
 
     var surface by remember { mutableStateOf(Surface.DASHBOARD) }
     val snackbar = remember { SnackbarHostState() }
@@ -179,6 +181,7 @@ fun AppScreen(
                     onGoals = { surface = Surface.GOALS },
                     onReflection = { surface = Surface.REFLECTION },
                     onNotes = { surface = Surface.NOTES },
+                    onTasks = { surface = Surface.TASKS },
                 ),
             )
             Surface.SETTINGS -> SubScreen("Settings", { surface = Surface.DASHBOARD }, snackbar) {
@@ -199,7 +202,10 @@ fun AppScreen(
             Surface.REFLECTION -> SubScreen("Reflection", { surface = Surface.DASHBOARD }, snackbar) {
                 ReflectionScreen(reflectionVm)
             }
-            Surface.TASKS, Surface.SKILLS -> SubScreen("Coming soon", { surface = Surface.DASHBOARD }, snackbar) {}
+            Surface.TASKS -> SubScreen("Run a task", { surface = Surface.DASHBOARD }, snackbar) {
+                TaskRunScreen(taskVm)
+            }
+            Surface.SKILLS -> SubScreen("Coming soon", { surface = Surface.DASHBOARD }, snackbar) {}
             Surface.CONVERSATION -> ConversationContent(
                 convoVm = convoVm,
                 container = container,

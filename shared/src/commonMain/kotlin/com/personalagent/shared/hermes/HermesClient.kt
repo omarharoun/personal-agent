@@ -10,6 +10,7 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -72,6 +73,9 @@ class HermesClient(
         ignoreUnknownKeys = true
         explicitNulls = false
         encodeDefaults = true
+        // Hermes returns explicit `null` for absent list/scalar fields (e.g.
+        // `tool_calls: null`); coerce those to the property default (emptyList).
+        coerceInputValues = true
     }
 
     private val configure: HttpClientConfig<*>.() -> Unit = {
@@ -251,6 +255,62 @@ class HermesClient(
     suspend fun skills(): List<HermesSkill> {
         val res = getAuthed("${config.baseUrl}/v1/skills")
         return json.decodeFromString(HermesSkillsResponse.serializer(), res).data
+    }
+
+    // --- Agent runs (/v1/runs) + hydration -----------------------------------
+
+    /** `POST /v1/runs` — start an agent task; returns the run id immediately. */
+    suspend fun startRun(input: String): HermesRunStarted {
+        val res = try {
+            client.post("${config.baseUrl}/v1/runs") {
+                authHeaders()
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(HermesRunRequest.serializer(), HermesRunRequest(input)))
+            }
+        } catch (e: HttpRequestTimeoutException) {
+            throw HermesException("Hermes took too long to start the task.", e)
+        } catch (e: Throwable) {
+            throw HermesException(unreachable(), e)
+        }
+        if (!res.status.isSuccess()) throw statusException(res)
+        return json.decodeFromString(HermesRunStarted.serializer(), res.bodyAsText())
+    }
+
+    /**
+     * `GET /v1/runs/{id}/events` (SSE). Emits [RunEvent]s live — tool starts,
+     * completions, reasoning, final answer + usage. The session id for hydration
+     * equals the run id (verified live).
+     */
+    fun runEvents(runId: String): Flow<RunEvent> = flow {
+        val statement = try {
+            client.prepareGet("${config.baseUrl}/v1/runs/$runId/events") {
+                authHeaders()
+                headers { append(HttpHeaders.Accept, "text/event-stream") }
+            }
+        } catch (e: Throwable) {
+            throw HermesException(unreachable(), e)
+        }
+        statement.execute { response ->
+            if (!response.status.isSuccess()) throw statusException(response)
+            val channel = response.bodyAsChannel()
+            while (true) {
+                val line = try {
+                    channel.readUTF8Line()
+                } catch (e: HttpRequestTimeoutException) {
+                    throw HermesException("The task stream stalled. Check your connection to Hermes.", e)
+                } ?: break
+                if (line.isEmpty() || !line.startsWith("data:")) continue
+                val payload = line.substringAfter("data:").trim()
+                if (payload == "[DONE]") break
+                parseRunEvent(payload, json)?.let { emit(it) }
+            }
+        }
+    }
+
+    /** `GET /api/sessions/{id}/messages` — full transcript incl. tool calls/results. */
+    suspend fun sessionMessages(sessionId: String): List<HermesMessage> {
+        val res = getAuthed("${config.baseUrl}/api/sessions/$sessionId/messages")
+        return json.decodeFromString(HermesMessagesResponse.serializer(), res).data
     }
 
     // --- Reminders / jobs (/api/jobs) ----------------------------------------

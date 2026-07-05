@@ -80,6 +80,32 @@ class HermesLiveIntegrationTest {
     }
 
     @Test
+    fun agent_run_streams_tool_events_and_hydrates_live() {
+        if (!enabled) { println("SKIP live test — set HERMES_BASE_URL + HERMES_API_KEY"); return }
+        runBlocking {
+            val c = client()
+            try {
+                val started = c.startRun("Search the web for the latest stable Python 3 version. Answer in one sentence.")
+                println("run started: ${started.runId}")
+                val events = c.runEvents(started.runId).toList()
+                println("run events: ${events.map { it::class.simpleName }}")
+
+                val completed = events.filterIsInstance<RunEvent.Completed>().firstOrNull()
+                assertTrue(completed != null, "run.completed received")
+                assertTrue(completed!!.output.isNotBlank(), "run produced an answer")
+                println("run answer: ${completed.output.take(120)}")
+                completed.usage?.let { println("run usage: ${it.totalTokens} tokens") }
+
+                // Hydrate what it found from the transcript.
+                val msgs = c.sessionMessages(started.runId)
+                val findings = SessionHydration.findings(msgs)
+                println("hydrated messages=${msgs.size}, findings=${findings.size}, firstTool=${findings.firstOrNull()?.tool}")
+                assertTrue(msgs.isNotEmpty(), "transcript hydrated")
+            } finally { c.close() }
+        }
+    }
+
+    @Test
     fun dashboard_read_endpoints_return_real_data() {
         if (!enabled) { println("SKIP live test — set HERMES_BASE_URL + HERMES_API_KEY"); return }
         runBlocking {
