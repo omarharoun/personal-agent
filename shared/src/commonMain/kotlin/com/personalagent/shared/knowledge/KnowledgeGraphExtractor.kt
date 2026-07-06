@@ -57,6 +57,13 @@ object KnowledgeGraphExtractor {
             append("Return ONLY a single minified JSON object, no prose, no code fence, in EXACTLY this shape:\n")
             append("{\"nodes\":[{\"id\":\"kebab-id\",\"label\":\"Short Label\",\"type\":\"topic|entity|concept|person|place|activity|skill\",\"weight\":1-10}],")
             append("\"edges\":[{\"from\":\"kebab-id\",\"to\":\"kebab-id\",\"relation\":\"short phrase\"}]}\n\n")
+            append("LABEL each node with the CONCRETE REAL-WORLD SUBJECT the person discussed — a specific ")
+            append("thing, place, person, project, activity, or field (e.g. \"Sourdough Baking\", \"Berlin Trip\", ")
+            append("\"Python\", \"Sister's Birthday\", \"Sleep\"). Labels are 1-3 words, Title Case, no trailing ellipsis.\n")
+            append("DO NOT create meta nodes that describe the conversation itself or how the assistant behaves ")
+            append("rather than a real subject. Forbidden examples: \"Memory Test\", \"Self-Knowledge\", ")
+            append("\"Personal Facts\", \"Admit Uncertainty\", \"Follow-up Question\", \"General Chat\", ")
+            append("\"Assistant Capabilities\", \"Clarification\". If a message is only small-talk or a test, omit it.\n\n")
             append("Rules: 8-40 nodes; ids are lowercase kebab-case and unique; weight reflects how often/")
             append("how strongly the person returned to it; every edge's from/to MUST be an existing node id; ")
             append("prefer meaningful relations over a hub-and-spoke; do not invent topics not present below.\n\n")
@@ -88,11 +95,12 @@ object KnowledgeGraphExtractor {
         val dto = runCatching { json.decodeFromString(Dto.serializer(), obj) }.getOrNull() ?: return null
         val nodes = dto.nodes
             .filter { it.id.isNotBlank() && it.label.isNotBlank() }
+            .filterNot { isMetaLabel(it.label) }
             .distinctBy { it.id }
             .map {
                 KnowledgeNode(
                     id = it.id.trim(),
-                    label = it.label.trim(),
+                    label = it.label.trim().trimEnd('.', '…'),
                     type = it.type.trim().ifBlank { "topic" }.lowercase(),
                     weight = it.weight.coerceIn(1f, 10f),
                 )
@@ -105,6 +113,34 @@ object KnowledgeGraphExtractor {
             .map { KnowledgeEdge(it.from, it.to, it.relation.trim().ifBlank { "related" }) }
         return KnowledgeGraph(nodes = nodes, edges = edges, source = KnowledgeGraphSource.MODEL)
     }
+
+    /**
+     * True when a label describes the *conversation itself* or the assistant's
+     * behaviour rather than a real-world subject — the vague/meta nodes we don't
+     * want on the map ("Memory Test", "Self-Knowledge", "Admit Uncertainty", …).
+     */
+    internal fun isMetaLabel(label: String): Boolean {
+        val lc = label.trim().lowercase()
+        if (lc.isBlank()) return true
+        // Whole-label matches for the common offenders.
+        if (lc in META_LABELS) return true
+        // Phrase fragments that only ever describe the meta-conversation.
+        return META_FRAGMENTS.any { lc.contains(it) }
+    }
+
+    private val META_LABELS: Set<String> = setOf(
+        "general chat", "small talk", "smalltalk", "greeting", "greetings",
+        "conversation", "chit chat", "chitchat", "misc", "miscellaneous", "other",
+        "test", "testing", "memory test", "clarification", "follow-up", "follow up",
+    )
+
+    private val META_FRAGMENTS: List<String> = listOf(
+        "self-knowledge", "self knowledge", "personal facts", "personal fact",
+        "admit uncertainty", "uncertainty about", "memory test", "assistant capab",
+        "agent capab", "ai capab", "model capab", "capabilities of", "how the assistant",
+        "how the agent", "how you work", "follow-up question", "followup question",
+        "clarifying question", "clarification request",
+    )
 
     /** Grab the outermost `{...}` object from a possibly-noisy string. */
     private fun extractJsonObject(raw: String): String? {
