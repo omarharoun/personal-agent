@@ -2,16 +2,18 @@
 # Run:  cd iosApp && xcodegen generate   (brew install xcodegen)
 # Then: open iosApp.xcodeproj  and build to a simulator/device on macOS.
 #
-# A hand-written .pbxproj is intentionally NOT committed: it is huge, fragile,
-# and impossible to validate in this Linux sandbox. This spec is the source of
-# truth; it produces a correct project that links the shared KMP framework.
+# A hand-written .pbxproj is intentionally NOT committed: it is huge and fragile.
+# This spec is the source of truth.
 #
 # BUILD SCOPE: the target compiles only the Hermes Life Agent client path
-# (Connect + streaming Chat), mirroring the shipped Android app. The legacy
-# on-device stack (Notes/Reminders/Plan over on-device ML + MLX) is retired on
-# iOS exactly as it was on Android — those .swift files stay in the repo for
-# reference but are intentionally NOT listed under `sources`, so they don't
-# compile. Re-add them here (and their MLX package) if that path is revived.
+# (Connect + streaming Chat), mirroring the shipped Android app. Per the iOS
+# README this client is a **pure-Swift** starting point (URLSession; it does NOT
+# `import Shared`), so the KMP `Shared.framework` is intentionally NOT a
+# dependency here — that keeps the iOS build self-contained (no Kotlin/Native
+# link + framework-embed step). The legacy on-device stack (Notes/Reminders/Plan
+# over on-device ML + MLX) is retired on iOS just as it was on Android; those
+# .swift files stay in the repo but are not in the build target. Re-add the
+# framework dependency + preBuildScript here if iOS adopts the KMP shared logic.
 name: iosApp
 options:
   bundleIdPrefix: com.personalagent
@@ -20,16 +22,12 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    # Where Gradle drops the compiled `Shared.framework` for the active config.
-    FRAMEWORK_SEARCH_PATHS:
-      - "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
 targets:
   iosApp:
     type: application
     platform: iOS
-    # Explicit whitelist — only the Hermes-client files (self-contained Swift:
-    # Foundation + SwiftUI + Security). No `import Shared`, so no KMP interop to
-    # keep in sync here; the framework is still built + embedded below.
+    # Explicit whitelist — only the self-contained Hermes-client files
+    # (Foundation + SwiftUI + Security; no `import Shared`).
     sources:
       - path: iosApp/iOSApp.swift
       - path: iosApp/HermesClient.swift
@@ -40,13 +38,3 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.personalagent.ios
         GENERATE_INFOPLIST_FILE: NO
-    dependencies:
-      - framework: Shared.framework
-        embed: true
-    # Build the shared framework before compiling Swift so it is present + embedded.
-    preBuildScripts:
-      - name: "Build shared KMP framework"
-        script: |
-          cd "$SRCROOT/.."
-          ./gradlew :shared:embedAndSignAppleFrameworkForXcode
-        basedOnDependencyAnalysis: false

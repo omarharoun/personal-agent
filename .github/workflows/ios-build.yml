@@ -36,43 +36,12 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
-
-      # gradle.properties pins org.gradle.java.home to a local dev path that
-      # doesn't exist on CI — drop it so Gradle uses the runner's JAVA_HOME (this
-      # also fixes the Gradle call inside the Xcode preBuildScript during archive).
-      - name: Use runner JAVA_HOME for Gradle
-        run: sed -i '' '/org\.gradle\.java\.home/d' gradle.properties
-
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate Xcode project
         working-directory: iosApp
         run: xcodegen generate
-
-      # Warm the Kotlin/Native cache and surface any shared-module compile errors
-      # early. The Xcode project's own preBuildScript runs
-      # `:shared:embedAndSignAppleFrameworkForXcode` during the archive, which is
-      # what actually places Shared.framework where FRAMEWORK_SEARCH_PATHS expects.
-      - name: Warm up shared KMP (iosArm64)
-        run: ./gradlew :shared:compileKotlinIosArm64 --stacktrace
-
-      - name: Resolve Swift package dependencies
-        working-directory: iosApp
-        run: xcodebuild -resolvePackageDependencies -project iosApp.xcodeproj -scheme iosApp
 
       - name: Archive (unsigned, generic iOS device / arm64)
         working-directory: iosApp
