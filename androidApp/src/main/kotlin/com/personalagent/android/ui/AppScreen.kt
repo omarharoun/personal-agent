@@ -89,10 +89,46 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import com.personalagent.android.AppContainer
 import com.personalagent.android.ui.theme.HermesText
 import com.personalagent.android.ui.theme.ThemeMode
+import com.personalagent.android.ui.voice.rememberVoiceController
 import com.personalagent.shared.cloud.CloudProvider
+import kotlin.math.abs
+import kotlin.math.exp
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
@@ -511,47 +547,58 @@ private fun ConversationContent(
         // would re-apply the nav-bar inset to this Column AND the composer.
         contentWindowInsets = WindowInsets.statusBars,
     ) { inner ->
-        Column(Modifier.fillMaxSize().padding(inner)) {
+        // The transcript fills the surface; the composer FLOATS over it (no opaque
+        // band under it) — the last messages scroll up behind the pill, messenger-style.
+        Box(Modifier.fillMaxSize().padding(inner)) {
             if (messages.isEmpty()) {
                 HomeEmptyState(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier.fillMaxSize(),
                     onPrompt = { convoVm.send(it) },
                 )
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        horizontal = 16.dp, vertical = 16.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
-                ) {
-                    items(messages, key = { it.id }) { msg -> MessageRow(msg) }
-                    if (sending) item("typing") { TypingIndicator() }
+                // Select + copy anywhere in the transcript (long-press to select).
+                SelectionContainer(Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        // Bottom pad clears the floating composer so nothing hides behind it.
+                        contentPadding = PaddingValues(
+                            start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        items(messages, key = { it.id }) { msg -> MessageRow(msg) }
+                        if (sending) item("typing") { TypingIndicator() }
+                    }
                 }
             }
 
-            // 🔒 Crisis support card (consent-first; contacts NO ONE automatically).
-            activeCrisis?.let { crisis ->
-                SupportResponseCard(
-                    response = crisis,
-                    contacts = trustedContacts.value,
-                    onDismiss = { convoVm.dismissCrisis() },
-                    onContactMissingApp = { },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            // Crisis card + composer both float at the bottom (crisis above the pill).
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                // 🔒 Crisis support card (consent-first; contacts NO ONE automatically).
+                activeCrisis?.let { crisis ->
+                    SupportResponseCard(
+                        response = crisis,
+                        contacts = trustedContacts.value,
+                        onDismiss = { convoVm.dismissCrisis() },
+                        onContactMissingApp = { },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+
+                Composer(
+                    draft = draft,
+                    onDraftChange = { draft = it },
+                    sending = sending,
+                    onSend = {
+                        val toSend = draft
+                        draft = ""
+                        convoVm.send(toSend)
+                    },
+                    onVoiceFinal = { spoken -> convoVm.send(spoken) },
+                    onAttach = { marker -> draft = (draft.trimEnd() + " " + marker).trim() },
                 )
             }
-
-            Composer(
-                draft = draft,
-                onDraftChange = { draft = it },
-                sending = sending,
-                onSend = {
-                    val toSend = draft
-                    draft = ""
-                    convoVm.send(toSend)
-                },
-            )
         }
     }
 }
@@ -590,12 +637,50 @@ private fun MessageRow(msg: Message) {
             }
         }
 
-        // Assistant: full-width, no bubble, markdown-rendered.
-        Message.Role.ASSISTANT -> MarkdownText(
-            text = msg.text,
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.onBackground,
-        )
+        // Assistant: full-width, no bubble, markdown-rendered, with save/copy actions
+        // so any document the agent writes can be copied or shared out of the app.
+        Message.Role.ASSISTANT -> Column(Modifier.fillMaxWidth()) {
+            MarkdownText(
+                text = msg.text,
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            if (msg.text.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                MessageActions(msg.text)
+            }
+        }
+    }
+}
+
+/** Copy / share affordances under an assistant reply — the way a created document
+ *  leaves the app (share sheet → Files, Docs, Keep, email, …). No network of ours. */
+@Composable
+private fun MessageActions(text: String) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    // Inside a SelectionContainer, buttons must opt out of text selection.
+    DisableSelection {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = { clipboard.setText(AnnotatedString(text)) }) {
+                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.size(6.dp))
+                Text("Copy", style = MaterialTheme.typography.labelLarge)
+            }
+            TextButton(onClick = {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+                context.startActivity(Intent.createChooser(send, "Share / save").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+            }) {
+                Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.size(6.dp))
+                Text("Save", style = MaterialTheme.typography.labelLarge)
+            }
+        }
     }
 }
 
@@ -616,10 +701,18 @@ private fun TypingIndicator() {
 }
 
 // --- Composer ----------------------------------------------------------------
+
+/** One entry in the attachment dock. */
+private data class AttachItem(val label: String, val icon: ImageVector)
+
 /**
- * A polished, FLOATING messenger-style composer: a rounded, softly-shadowed pill
- * that sits over the page and docks flush above the keyboard. It grows to a few
- * lines, keeps a legible placeholder, and has a clear circular send button.
+ * A polished, FLOATING messenger-style composer that sits over the transcript (no
+ * opaque band under it) and docks flush above the keyboard. It carries:
+ *  • a left **"+" attachment dock** — press-and-hold and slide up to a magnifying,
+ *    macOS-Dock-style stack of options (or tap to open and tap an option); and
+ *  • a trailing **send / hold-to-talk** control — tap to send typed text, or (when
+ *    the field is empty) press-and-hold to record a voice message that the device
+ *    transcribes on-device and sends as text. Slide away while holding to cancel.
  */
 @Composable
 private fun Composer(
@@ -627,68 +720,301 @@ private fun Composer(
     onDraftChange: (String) -> Unit,
     sending: Boolean,
     onSend: () -> Unit,
+    onVoiceFinal: (String) -> Unit,
+    onAttach: (String) -> Unit,
 ) {
-    // Transparent backdrop so the pill visibly floats over the page background.
-    Box(
+    val density = LocalDensity.current
+
+    // --- Voice (hold-to-talk) -------------------------------------------------
+    var voiceCancelled by remember { mutableStateOf(false) }
+    val voice = rememberVoiceController(onFinal = { text -> if (!voiceCancelled) onVoiceFinal(text) })
+    val listening = voice.state.listening
+
+    // --- Attachment dock state ------------------------------------------------
+    var menuOpen by remember { mutableStateOf(false) }
+    var dragging by remember { mutableStateOf(false) }
+    var plusWinTop by remember { mutableFloatStateOf(Float.NaN) }
+    var fingerWinY by remember { mutableFloatStateOf(Float.NaN) }
+    val optionCenters = remember { mutableStateListOf(Float.NaN, Float.NaN, Float.NaN) }
+    val options = remember {
+        listOf(
+            AttachItem("Camera", Icons.Filled.PhotoCamera),
+            AttachItem("Photo", Icons.Filled.Image),
+            AttachItem("File", Icons.Filled.AttachFile),
+        )
+    }
+
+    // System pickers. Callbacks are kept fresh (rememberUpdatedState) so they don't
+    // capture a stale draft when a result arrives later.
+    val attach by rememberUpdatedState(onAttach)
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bmp ->
+        if (bmp != null) attach("[📷 photo]")
+    }
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) attach("[🖼 ${uri.lastPathSegment ?: "image"}]")
+    }
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) attach("[📎 ${uri.lastPathSegment ?: "file"}]")
+    }
+    fun runOption(index: Int) {
+        menuOpen = false
+        when (index) {
+            0 -> takePhoto.launch(null)
+            1 -> pickPhoto.launch("image/*")
+            2 -> pickFile.launch("*/*")
+        }
+    }
+
+    val selectRadiusPx = with(density) { 44.dp.toPx() }
+    val magnifyRadiusPx = with(density) { 130.dp.toPx() }
+
+    fun nearestOption(): Int? {
+        if (fingerWinY.isNaN()) return null
+        var best = -1
+        var bestDist = Float.MAX_VALUE
+        optionCenters.forEachIndexed { i, c ->
+            if (!c.isNaN()) {
+                val d = abs(fingerWinY - c)
+                if (d < bestDist) { bestDist = d; best = i }
+            }
+        }
+        return if (best >= 0 && bestDist <= selectRadiusPx) best else null
+    }
+
+    // Backdrop is transparent — the pill floats over the page background.
+    Column(
         Modifier
             .fillMaxWidth()
-            // Sit flush above the keyboard when it's open, and above the nav bar
-            // when it's closed — the UNION (max per side) of the IME and
-            // navigation-bar insets, applied exactly ONCE (never summed, which was
-            // the old double-count that left a gap above the IME).
             .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
             .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 12.dp),
     ) {
+        // Dock options — float ABOVE the "+", stacked, magnifying toward the finger.
+        AnimatedVisibility(visible = menuOpen || dragging) {
+            Column(
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(start = 2.dp, bottom = 12.dp),
+            ) {
+                options.forEachIndexed { i, opt ->
+                    val center = optionCenters.getOrNull(i) ?: Float.NaN
+                    val scale = if (dragging && !fingerWinY.isNaN() && !center.isNaN()) {
+                        val d = abs(fingerWinY - center)
+                        1f + 0.55f * exp(-(d * d) / (2f * magnifyRadiusPx / 3f * (magnifyRadiusPx / 3f)))
+                    } else 1f
+                    val highlighted = dragging && nearestOption() == i
+                    DockOption(
+                        item = opt,
+                        scale = scale,
+                        highlighted = highlighted,
+                        onClick = { runOption(i) },
+                        modifier = Modifier.onGloballyPositioned {
+                            optionCenters[i] = it.positionInWindow().y + it.size.height / 2f
+                        },
+                    )
+                }
+            }
+        }
+
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
-            // Soft floating shadow — the "elevated pill" look.
             shadowElevation = 10.dp,
             tonalElevation = 2.dp,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
-                Modifier.padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-                // Anchor the send button to the bottom as the field grows multiline.
+                Modifier.padding(start = 6.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                Box(Modifier.weight(1f).padding(vertical = 10.dp)) {
-                    if (draft.isEmpty()) {
+                // The "+" attachment trigger (hold-and-slide, or tap to toggle).
+                PlusButton(
+                    open = menuOpen || dragging,
+                    modifier = Modifier
+                        .onGloballyPositioned { plusWinTop = it.positionInWindow().y }
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                val wasOpen = menuOpen
+                                val down = awaitFirstDown()
+                                dragging = true
+                                menuOpen = true
+                                var moved = false
+                                fingerWinY = plusWinTop + down.position.y
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val ch = event.changes.firstOrNull() ?: break
+                                    fingerWinY = plusWinTop + ch.position.y
+                                    if (abs(ch.position.y - down.position.y) > 24f) moved = true
+                                    if (!ch.pressed) break
+                                }
+                                dragging = false
+                                val idx = nearestOption()
+                                fingerWinY = Float.NaN
+                                if (moved) {
+                                    if (idx != null) runOption(idx)
+                                    menuOpen = false
+                                } else {
+                                    // A tap toggles the persistent (tap-to-select) menu.
+                                    menuOpen = !wasOpen
+                                }
+                            }
+                        },
+                )
+
+                Box(Modifier.weight(1f).padding(vertical = 10.dp, horizontal = 8.dp)) {
+                    if (listening) {
                         Text(
-                            "Message your Life Agent…",
+                            voice.state.partial.ifBlank { "Listening… release to send · slide away to cancel" },
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (voice.state.partial.isBlank())
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                    } else {
+                        if (draft.isEmpty()) {
+                            Text(
+                                "Message your Life Agent…",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        BasicTextField(
+                            value = draft,
+                            onValueChange = onDraftChange,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            maxLines = 6,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { if (draft.isNotBlank()) onSend() }),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    BasicTextField(
-                        value = draft,
-                        onValueChange = onDraftChange,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        maxLines = 6,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { if (draft.isNotBlank()) onSend() }),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
                 }
-                Spacer(Modifier.size(8.dp))
-                FilledIconButton(
-                    onClick = onSend,
-                    enabled = draft.isNotBlank() && !sending,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                    modifier = Modifier.size(44.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
-                }
+                Spacer(Modifier.size(6.dp))
+                SendOrMicButton(
+                    hasText = draft.isNotBlank(),
+                    sending = sending,
+                    listening = listening,
+                    onSend = onSend,
+                    onHoldStart = { voiceCancelled = false; voice.start() },
+                    onHoldEnd = { cancelled -> voiceCancelled = cancelled; voice.stop() },
+                )
             }
+        }
+    }
+}
+
+/** The circular "+" trigger; rotates to an × while the dock is open. */
+@Composable
+private fun PlusButton(open: Boolean, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            if (open) Icons.Filled.Close else Icons.Filled.Add,
+            contentDescription = if (open) "Close attachments" else "Add attachment",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** A single dock option pill — magnifies via [scale], lights up when [highlighted]. */
+@Composable
+private fun DockOption(
+    item: AttachItem,
+    scale: Float,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(24.dp),
+        color = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+        shadowElevation = if (highlighted) 8.dp else 3.dp,
+        modifier = modifier
+            .wrapContentWidth()
+            .graphicsLayer(
+                scaleX = scale,
+                scaleY = scale,
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 1f),
+            ),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val fg = if (highlighted) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+            Icon(item.icon, contentDescription = null, tint = fg, modifier = Modifier.size(20.dp))
+            Text(item.label, style = MaterialTheme.typography.bodyLarge, color = fg)
+        }
+    }
+}
+
+/** Trailing control: a tap-to-send arrow when there's text, else a hold-to-talk mic. */
+@Composable
+private fun SendOrMicButton(
+    hasText: Boolean,
+    sending: Boolean,
+    listening: Boolean,
+    onSend: () -> Unit,
+    onHoldStart: () -> Unit,
+    onHoldEnd: (cancelled: Boolean) -> Unit,
+) {
+    if (hasText) {
+        FilledIconButton(
+            onClick = onSend,
+            enabled = !sending,
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
+            modifier = Modifier.size(44.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+        }
+    } else {
+        // Empty field → hold the mic to record; release to send, slide away to cancel.
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(
+                    if (listening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                )
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        onHoldStart()
+                        var cancel = false
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val ch = event.changes.firstOrNull() ?: break
+                            val dx = ch.position.x - down.position.x
+                            val dy = ch.position.y - down.position.y
+                            if (dx < -120f || dy < -120f) cancel = true
+                            if (!ch.pressed) break
+                        }
+                        onHoldEnd(cancel)
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.Mic,
+                contentDescription = "Hold to record a voice message",
+                tint = MaterialTheme.colorScheme.onPrimary,
+            )
         }
     }
 }

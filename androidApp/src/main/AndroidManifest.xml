@@ -10,6 +10,17 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Re-arm any pending local reminder alarms after a reboot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Hold-to-record voice messages: on-device speech recognition (system
+         SpeechRecognizer). Audio is transcribed by the device and only the text
+         is sent to your Hermes — no audio leaves the phone via this app. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- The device's speech-recognition service, if present. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <application
         android:name=".PersonalAgentApp"
