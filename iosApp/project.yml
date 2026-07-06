@@ -5,6 +5,13 @@
 # A hand-written .pbxproj is intentionally NOT committed: it is huge, fragile,
 # and impossible to validate in this Linux sandbox. This spec is the source of
 # truth; it produces a correct project that links the shared KMP framework.
+#
+# BUILD SCOPE: the target compiles only the Hermes Life Agent client path
+# (Connect + streaming Chat), mirroring the shipped Android app. The legacy
+# on-device stack (Notes/Reminders/Plan over on-device ML + MLX) is retired on
+# iOS exactly as it was on Android — those .swift files stay in the repo for
+# reference but are intentionally NOT listed under `sources`, so they don't
+# compile. Re-add them here (and their MLX package) if that path is revived.
 name: iosApp
 options:
   bundleIdPrefix: com.personalagent
@@ -16,22 +23,17 @@ settings:
     # Where Gradle drops the compiled `Shared.framework` for the active config.
     FRAMEWORK_SEARCH_PATHS:
       - "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
-# MLX Swift powers the Step-3 on-device LLM (IosOnDeviceLlm). MLX is
-# **Apple-silicon (arm64) only** — it builds/runs on real devices and the arm64
-# iOS simulator, NOT the legacy x86_64 simulator. Pin a recent tag and confirm it
-# resolves on the first Mac build (the verification gate). Until this package is
-# added, `#if canImport(MLXLLM)` keeps the app compiling with the LLM reporting
-# unavailable, so the rest of the app is unaffected.
-packages:
-  mlx-swift-examples:
-    url: https://github.com/ml-explore/mlx-swift-examples.git
-    from: "2.25.0"
 targets:
   iosApp:
     type: application
     platform: iOS
+    # Explicit whitelist — only the Hermes-client files (self-contained Swift:
+    # Foundation + SwiftUI + Security). No `import Shared`, so no KMP interop to
+    # keep in sync here; the framework is still built + embedded below.
     sources:
-      - path: iosApp
+      - path: iosApp/iOSApp.swift
+      - path: iosApp/HermesClient.swift
+      - path: iosApp/HermesLifeAgentView.swift
     info:
       path: iosApp/Info.plist
     settings:
@@ -41,13 +43,7 @@ targets:
     dependencies:
       - framework: Shared.framework
         embed: true
-      # MLX LLM runtime + common generation helpers (products of mlx-swift-examples).
-      # MLX (the core array lib) is pulled in transitively.
-      - package: mlx-swift-examples
-        product: MLXLLM
-      - package: mlx-swift-examples
-        product: MLXLMCommon
-    # Build the shared framework before compiling Swift, so `import Shared` resolves.
+    # Build the shared framework before compiling Swift so it is present + embedded.
     preBuildScripts:
       - name: "Build shared KMP framework"
         script: |
