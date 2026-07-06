@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
@@ -94,7 +95,7 @@ import com.personalagent.shared.cloud.CloudProvider
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
-private enum class Surface { DASHBOARD, CONVERSATION, SETTINGS, SUPPORT, SUPPORT_RESOURCES, NOTES, REMINDERS, GOALS, REFLECTION, TASKS, RUN_TASK, SKILLS }
+private enum class Surface { DASHBOARD, CONVERSATION, HISTORY, SETTINGS, SUPPORT, SUPPORT_RESOURCES, NOTES, REMINDERS, GOALS, REFLECTION, TASKS, RUN_TASK, SKILLS }
 
 /**
  * The app shell — an Open-WebUI-style chat surface: a slide-out navigation drawer
@@ -173,6 +174,7 @@ fun AppScreen(
                 onOpenDashboard = { dashboardVm.refresh(); surface = Surface.DASHBOARD; closeDrawer() },
                 onNewChat = { convoVm.newChat(); surface = Surface.CONVERSATION; closeDrawer() },
                 onSelectChat = { id -> convoVm.selectChat(id); surface = Surface.CONVERSATION; closeDrawer() },
+                onOpenHistory = { surface = Surface.HISTORY; closeDrawer() },
                 onOpenNotes = { surface = Surface.NOTES; closeDrawer() },
                 onOpenTasks = { tasksVm.refresh(); surface = Surface.TASKS; closeDrawer() },
                 onOpenReminders = { remindersVm.refresh(); surface = Surface.REMINDERS; closeDrawer() },
@@ -237,6 +239,12 @@ fun AppScreen(
             Surface.SKILLS -> SubScreen("Skills", { backHome() }, snackbar) {
                 SkillsScreen(skillsVm)
             }
+            Surface.HISTORY -> SubScreen("History", { backHome() }, snackbar) {
+                ChatHistoryScreen(
+                    vm = convoVm,
+                    onOpenChat = { id -> convoVm.selectChat(id); surface = Surface.CONVERSATION },
+                )
+            }
             Surface.CONVERSATION -> ConversationContent(
                 convoVm = convoVm,
                 container = container,
@@ -256,6 +264,7 @@ private fun AppDrawer(
     onOpenDashboard: () -> Unit,
     onNewChat: () -> Unit,
     onSelectChat: (Long) -> Unit,
+    onOpenHistory: () -> Unit,
     onOpenNotes: () -> Unit,
     onOpenTasks: () -> Unit,
     onOpenReminders: () -> Unit,
@@ -328,6 +337,12 @@ private fun AppDrawer(
                 label = { Text("Dashboard") },
                 selected = currentSurface == Surface.DASHBOARD,
                 onClick = onOpenDashboard,
+            )
+            NavigationDrawerItem(
+                icon = { Icon(Icons.Filled.History, null) },
+                label = { Text("History") },
+                selected = currentSurface == Surface.HISTORY,
+                onClick = onOpenHistory,
             )
             NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.Flag, null) },

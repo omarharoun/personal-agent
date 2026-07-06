@@ -15,6 +15,7 @@ import com.personalagent.shared.hermes.HermesReminderPoller
 import com.personalagent.shared.hermes.NotifiedReminderStore
 import com.personalagent.shared.hermes.ReflectionStore
 import com.personalagent.shared.hermes.ReminderHistoryStore
+import com.personalagent.shared.chat.ChatStore
 import com.personalagent.shared.home.HomeCacheStore
 import com.personalagent.shared.notes.MemoStore
 import com.personalagent.shared.profile.ProfileStore
@@ -81,6 +82,12 @@ class AppContainer(context: Context) {
      * home paints instantly and doesn't re-query the agent on every appearance.
      */
     val homeCacheStore: HomeCacheStore = HomeCacheStore(encrypted("home_cache"))
+
+    /**
+     * Local, sealed-at-rest record of chat history so conversations survive an app
+     * restart (Hermes keeps the authoritative server copy; this is the device's).
+     */
+    val chatStore: ChatStore = ChatStore(encrypted("chat_history"))
 
     // --- Hermes connection ----------------------------------------------------
 

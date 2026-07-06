@@ -100,6 +100,29 @@ React-Native rewrite. Shared logic (the `HermesClient`, config/session-key store
 wire models) lives in `:shared` and is unit-tested once; each platform keeps a
 thin native UI.
 
+### Chat history (persisted on-device)
+
+Conversations are saved on the device as you chat, so they survive an app restart.
+Each thread (title, its `X-Hermes-Session-Id`, timestamps) and every message
+(role, text, time) is mirrored to a sealed-at-rest **`ChatStore`**
+(`shared/.../chat/ChatStore.kt`) — JSON over the same encrypted `KeyValueStorage`
+as the app's other local stores, so no database dependency is pulled in. A
+**History** screen (drawer → *History*) lists every saved conversation newest-first
+with a preview + relative time; tapping one reopens it with its messages and its
+original session id, keeping the server's short-term threading continuous. On
+launch the app also **best-effort merges** any server-side conversations from
+Hermes `GET /api/sessions` that aren't already on the device (marked with a cloud
+badge), lazy-loading their transcripts from `GET /api/sessions/{id}/messages` when
+opened. Hermes remains the authoritative store; this is the device's own copy for
+instant, offline browsing. Clearing local history never touches Hermes memory.
+
+### Knowledge map (derived from your conversations)
+
+A **Knowledge** screen visualizes an interactive node-link graph of the topics,
+entities and concepts you've explored — **derived from your saved chat records**,
+honestly labeled as such and **not** presented as Hermes memory. See
+[`docs/KNOWLEDGE_GRAPH.md`](docs/KNOWLEDGE_GRAPH.md).
+
 ## Connecting the app to your Hermes
 
 1. Install + run Hermes with the OpenAI-compatible API server enabled

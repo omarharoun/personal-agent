@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.personalagent.android.AppContainer
+import com.personalagent.shared.chat.ChatStore
+import com.personalagent.shared.chat.StoredConversation
+import com.personalagent.shared.chat.StoredMessage
 import com.personalagent.shared.hermes.ChatStreamEvent
 import com.personalagent.shared.hermes.HermesClient
 import com.personalagent.shared.hermes.HermesConfig
@@ -13,6 +16,7 @@ import com.personalagent.shared.safety.CrisisLevel
 import com.personalagent.shared.safety.CrisisRecognizer
 import com.personalagent.shared.safety.CrisisResponder
 import com.personalagent.shared.safety.CrisisResponse
+import com.personalagent.shared.util.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +32,8 @@ data class Message(
     val id: Long,
     val role: Role,
     val text: String,
+    /** Epoch millis the line was recorded (0 for legacy/unstamped). */
+    val time: Long = 0L,
 ) {
     enum class Role { USER, ASSISTANT, SYSTEM }
 }
@@ -37,12 +43,19 @@ data class Message(
  * `X-Hermes-Session-Id` for this thread — new chat → new id, so the server
  * threads short-term context per conversation while the app-wide
  * `X-Hermes-Session-Key` keeps long-term memory continuous across all of them.
+ *
+ * [fromHermes] marks a thread surfaced from the server's `/api/sessions` list whose
+ * messages may not be loaded yet ([hydrated] == false → fetch them on first open).
  */
 data class ChatSession(
     val id: Long,
     val title: String,
     val messages: List<Message>,
     val conversationId: String,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+    val fromHermes: Boolean = false,
+    val hydrated: Boolean = true,
 )
 
 /**
@@ -55,9 +68,15 @@ data class ChatSession(
  * plain-language reason from [HermesException] — the cardinal rule from the old
  * on-device build still holds: every send resolves to a reply or a visible error,
  * never a forever-spinner.
+ *
+ * **Persistence.** Threads and their messages are mirrored to a sealed-at-rest
+ * [ChatStore] so history survives an app restart; on launch we rehydrate the local
+ * history and, best-effort, merge any server-side sessions from `/api/sessions`
+ * that aren't already on the device.
  */
 class ConversationViewModel(
     private val hermes: HermesClient,
+    private val chatStore: ChatStore,
     // 🔒 REVIEW REQUIRED — crisis handling (Gate 2). Consulted on each user turn to
     // OFFER a consent-first supportive surface; it never triggers any autonomous
     // action. Coarse + conservative by design (see KeywordCrisisRecognizer). Must
@@ -84,9 +103,7 @@ class ConversationViewModel(
 
     private fun newConversationId(): String = "lifeagent-conv-${SESSION_SEED}-${convSeq++}"
 
-    private val _sessions = MutableStateFlow(
-        listOf(ChatSession(0L, NEW_CHAT_TITLE, emptyList(), newConversationId()))
-    )
+    private val _sessions = MutableStateFlow<List<ChatSession>>(emptyList())
     val sessions: StateFlow<List<ChatSession>> = _sessions.asStateFlow()
 
     private val _currentId = MutableStateFlow(0L)
@@ -100,18 +117,45 @@ class ConversationViewModel(
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending.asStateFlow()
 
+    init {
+        // Rehydrate the on-device history so past chats survive an app restart,
+        // then open onto a fresh "New chat" (history stays reachable in the drawer
+        // / History screen).
+        val restored = chatStore.all().map { it.toSession() }
+        nextSessionId = (restored.maxOfOrNull { it.id } ?: 0L) + 1
+        nextMessageId = (restored.flatMap { it.messages }.maxOfOrNull { it.id } ?: -1L) + 1
+        val fresh = ChatSession(
+            id = nextSessionId++,
+            title = NEW_CHAT_TITLE,
+            messages = emptyList(),
+            conversationId = newConversationId(),
+            createdAt = SystemClock.nowMillis(),
+            updatedAt = SystemClock.nowMillis(),
+        )
+        _sessions.value = restored + fresh
+        _currentId.value = fresh.id
+
+        // Best-effort: surface server-side conversations we don't have locally.
+        hydrateFromHermes()
+    }
+
     /** Append a message to [sessionId]; returns the new message id. */
     private fun appendTo(sessionId: Long, role: Message.Role, text: String): Long {
         val mid = nextMessageId++
+        val now = SystemClock.nowMillis()
         _sessions.update { list ->
             list.map { sess ->
                 if (sess.id != sessionId) sess
                 else {
                     val title =
                         if (sess.title == NEW_CHAT_TITLE && role == Message.Role.USER)
-                            text.take(48).trim()
+                            text.take(48).trim().ifBlank { NEW_CHAT_TITLE }
                         else sess.title
-                    sess.copy(messages = sess.messages + Message(mid, role, text), title = title)
+                    sess.copy(
+                        messages = sess.messages + Message(mid, role, text, now),
+                        title = title,
+                        updatedAt = now,
+                    )
                 }
             }
         }
@@ -128,6 +172,13 @@ class ConversationViewModel(
                 })
             }
         }
+    }
+
+    /** Persist one thread to the sealed-at-rest store (no-op for an empty thread). */
+    private fun persist(sessionId: Long) {
+        val sess = _sessions.value.firstOrNull { it.id == sessionId } ?: return
+        if (sess.messages.isEmpty()) return
+        chatStore.upsert(sess.toStored())
     }
 
     private fun append(role: Message.Role, text: String) = appendTo(_currentId.value, role, text)
@@ -152,13 +203,29 @@ class ConversationViewModel(
     fun newChat() {
         val current = _sessions.value.firstOrNull { it.id == _currentId.value }
         if (current != null && current.messages.isEmpty()) return
+        val now = SystemClock.nowMillis()
         val id = nextSessionId++
-        _sessions.update { it + ChatSession(id, NEW_CHAT_TITLE, emptyList(), newConversationId()) }
+        _sessions.update { it + ChatSession(id, NEW_CHAT_TITLE, emptyList(), newConversationId(), now, now) }
         _currentId.value = id
     }
 
     fun selectChat(id: Long) {
-        if (_sessions.value.any { it.id == id }) _currentId.value = id
+        val sess = _sessions.value.firstOrNull { it.id == id } ?: return
+        _currentId.value = id
+        // A history entry hydrated from Hermes may not have its messages yet — pull
+        // the transcript in on first open, then persist it locally.
+        if (sess.fromHermes && !sess.hydrated) hydrateMessages(sess)
+    }
+
+    /** Delete a thread from the in-memory list and the on-device store. */
+    fun deleteChat(id: Long) {
+        chatStore.remove(id)
+        _sessions.update { it.filterNot { s -> s.id == id } }
+        if (_currentId.value == id) {
+            // Fall back to the newest remaining non-empty thread, else a fresh one.
+            val next = _sessions.value.lastOrNull()
+            if (next != null) _currentId.value = next.id else newChat()
+        }
     }
 
     /** Handle one user turn: echo it, then stream the agent's reply. */
@@ -167,6 +234,7 @@ class ConversationViewModel(
         if (text.isEmpty() || _sending.value) return
         val target = _currentId.value
         appendTo(target, Message.Role.USER, text)
+        persist(target) // save the user turn immediately so nothing is lost mid-reply
 
         // 🔒 REVIEW REQUIRED (Gate 2) — consult the conservative crisis recognizer
         // on this turn. A hit only OFFERS support (message + resources + a
@@ -207,7 +275,66 @@ class ConversationViewModel(
                 setText(target, assistantId, "$GENERIC_ERROR (${e.message ?: e::class.simpleName})")
             } finally {
                 _sending.value = false
+                // Save the completed (or errored) assistant turn so the whole
+                // exchange is on disk before the app can be killed.
+                persist(target)
             }
+        }
+    }
+
+    // --- Hermes hydration -----------------------------------------------------
+
+    /** Pull server-side sessions we don't already have and add them to history. */
+    private fun hydrateFromHermes() {
+        viewModelScope.launch {
+            val cards = runCatching { hermes.sessions() }.getOrNull() ?: return@launch
+            val known = _sessions.value.map { it.conversationId }.toMutableSet()
+            val additions = ArrayList<ChatSession>()
+            for (card in cards) {
+                if (card.messageCount <= 0) continue
+                if (card.id in known) continue
+                known += card.id
+                val now = card.lastActiveMillis ?: SystemClock.nowMillis()
+                additions += ChatSession(
+                    id = nextSessionId++,
+                    title = card.displayTitle,
+                    messages = emptyList(),
+                    conversationId = card.id,
+                    createdAt = card.startedAt?.let { (it * 1000).toLong() } ?: now,
+                    updatedAt = now,
+                    fromHermes = true,
+                    hydrated = false,
+                )
+                if (additions.size >= MAX_HYDRATED) break
+            }
+            if (additions.isNotEmpty()) _sessions.update { it + additions }
+        }
+    }
+
+    /** Fetch a hydrated thread's transcript from `/api/sessions/{id}/messages`. */
+    private fun hydrateMessages(session: ChatSession) {
+        viewModelScope.launch {
+            val wire = runCatching { hermes.sessionMessages(session.conversationId) }.getOrNull()
+                ?: return@launch
+            val loaded = wire
+                .filter { (it.role == "user" || it.role == "assistant") && !it.content.isNullOrBlank() }
+                .map { m ->
+                    Message(
+                        id = nextMessageId++,
+                        role = if (m.role == "user") Message.Role.USER else Message.Role.ASSISTANT,
+                        text = m.content!!.trim(),
+                        time = session.updatedAt,
+                    )
+                }
+            if (loaded.isEmpty()) {
+                // Mark hydrated so we don't retry a genuinely empty transcript.
+                _sessions.update { list -> list.map { if (it.id == session.id) it.copy(hydrated = true) else it } }
+                return@launch
+            }
+            _sessions.update { list ->
+                list.map { if (it.id == session.id) it.copy(messages = loaded, hydrated = true) else it }
+            }
+            persist(session.id)
         }
     }
 
@@ -221,6 +348,8 @@ class ConversationViewModel(
         // A per-VM seed so conversation ids are unique across app runs without
         // needing a platform UUID in shared code.
         private val SESSION_SEED = kotlin.random.Random.nextInt(0, Int.MAX_VALUE).toString(16)
+        /** Cap on server sessions merged into history on launch. */
+        private const val MAX_HYDRATED = 40
         const val EMPTY_REPLY_FALLBACK =
             "Hermes didn't send any text back. Check that your Hermes has a working model provider configured."
         const val GENERIC_ERROR =
@@ -237,9 +366,45 @@ class ConversationViewModel(
                 ?: error("Hermes is not configured — Connect screen should gate this.")
             return ConversationViewModel(
                 hermes = client,
+                chatStore = container.chatStore,
                 crisisRecognizer = container.crisisRecognizer,
                 crisisResponder = container.crisisResponder,
             ) as T
         }
     }
+}
+
+// --- ChatStore <-> UI mapping ------------------------------------------------
+
+private fun ChatSession.toStored(): StoredConversation = StoredConversation(
+    id = id,
+    title = title,
+    conversationId = conversationId,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    messages = messages.map { StoredMessage(it.id, it.role.wire(), it.text, it.time) },
+    fromHermes = fromHermes,
+)
+
+private fun StoredConversation.toSession(): ChatSession = ChatSession(
+    id = id,
+    title = title,
+    messages = messages.map { Message(it.id, roleOf(it.role), it.text, it.time) },
+    conversationId = conversationId,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    fromHermes = fromHermes,
+    hydrated = true,
+)
+
+private fun Message.Role.wire(): String = when (this) {
+    Message.Role.USER -> "user"
+    Message.Role.ASSISTANT -> "assistant"
+    Message.Role.SYSTEM -> "system"
+}
+
+private fun roleOf(wire: String): Message.Role = when (wire) {
+    "user" -> Message.Role.USER
+    "system" -> Message.Role.SYSTEM
+    else -> Message.Role.ASSISTANT
 }
