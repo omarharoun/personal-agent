@@ -6,7 +6,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.SideEffect
+import androidx.core.view.WindowCompat
 import com.personalagent.android.ui.theme.PersonalAgentTheme
 import com.personalagent.android.ui.theme.ThemeMode
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -40,6 +43,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Go edge-to-edge so Compose is the SINGLE owner of window insets. Without
+        // this the platform also resizes the window for the keyboard (adjustResize
+        // under decor-fits-system-windows=true) AND WindowInsets.ime reports its
+        // height — double-counting into a large gap above the keyboard on the chat
+        // composer. Edge-to-edge makes the one imePadding/union application in the
+        // composer the only thing that moves it, docking it flush above the IME.
+        enableEdgeToEdge()
         val container = (application as PersonalAgentApp).container
         openDestination.value = intent?.getStringExtra(EXTRA_OPEN)
 
@@ -62,6 +72,15 @@ class MainActivity : ComponentActivity() {
             val onThemeModeChange: (ThemeMode) -> Unit = { mode ->
                 themeMode = mode
                 uiPrefs.edit().putString("theme_mode", mode.name).apply()
+            }
+
+            // Edge-to-edge draws behind the transparent system bars, so the bar
+            // icons must contrast the ACTIVE in-app theme (not the OS dark setting):
+            // dark icons on the light theme, light icons on the dark theme.
+            SideEffect {
+                val controller = WindowCompat.getInsetsController(window, window.decorView)
+                controller.isAppearanceLightStatusBars = !dark
+                controller.isAppearanceLightNavigationBars = !dark
             }
 
             PersonalAgentTheme(darkTheme = dark) {

@@ -11,6 +11,8 @@ import com.personalagent.shared.hermes.ReminderHistory
 import com.personalagent.shared.hermes.ReminderHistoryStore
 import com.personalagent.shared.hermes.ReminderStatus
 import com.personalagent.shared.hermes.ReminderView
+import com.personalagent.shared.home.HomeCache
+import com.personalagent.shared.home.HomeCacheStore
 import com.personalagent.shared.notes.Memo
 import com.personalagent.shared.notes.MemoStore
 import com.personalagent.shared.profile.ProfileStore
@@ -42,13 +44,17 @@ class DashboardViewModel(
     private val tasks: TaskStore,
     private val memos: MemoStore,
     private val reminderHistory: ReminderHistoryStore,
+    private val homeCache: HomeCacheStore,
 ) : ViewModel() {
 
     data class State(
         val loading: Boolean = true,
         val connected: Boolean = false,
         val name: String? = null,
-        val goalsLoading: Boolean = true,
+        /** Full-screen loading for the Goals card — only on a first-ever fetch (empty cache). */
+        val goalsLoading: Boolean = false,
+        /** Subtle "refreshing" indicator — a background revalidate over cached goals. */
+        val goalsRefreshing: Boolean = false,
         val goals: List<String> = emptyList(),
         val tasks: List<Task> = emptyList(),
         val memos: List<Memo> = emptyList(),
@@ -60,12 +66,22 @@ class DashboardViewModel(
 
     init { refresh() }
 
-    /** Reload everything. Local stores are read synchronously; network in the background. */
-    fun refresh() {
-        // Local, instant.
+    /**
+     * Reload the home. Everything paints INSTANTLY from persistent local state —
+     * tasks/memos/reminders from their own stores, goals from [HomeCacheStore] —
+     * then a background revalidate updates the cards when fresh data arrives.
+     *
+     * @param force re-query the agent for goals even if the cache is still fresh
+     *   (used by the manual "Refresh" action). Automatic reloads only re-query when
+     *   the cached goals are stale, so the home never re-hits the agent every open.
+     */
+    fun refresh(force: Boolean = false) {
+        // Local + cached, instant (no blocking spinner if a goals cache exists).
+        val cache = homeCache.load()
         _state.update {
             it.copy(
                 name = profile.displayName(),
+                goals = cache.goals,
                 tasks = tasks.all().filter { t -> !t.done },
                 memos = memos.all(),
                 reminders = upcomingReminders(),
@@ -74,7 +90,7 @@ class DashboardViewModel(
         }
         // Network, background.
         viewModelScope.launch { loadConnection() }
-        viewModelScope.launch { loadGoals() }
+        viewModelScope.launch { revalidateGoals(cache, force) }
         viewModelScope.launch { maybeDeriveName() }
     }
 
@@ -89,16 +105,34 @@ class DashboardViewModel(
         _state.update { it.copy(connected = ok) }
     }
 
-    private suspend fun loadGoals() {
-        _state.update { it.copy(goalsLoading = true) }
+    /**
+     * Stale-while-revalidate for the agent-derived goals. Serves cache immediately;
+     * only queries the agent when [force] or the cache is stale/empty. Shows the
+     * full loading state only on a first-ever fetch (empty cache), otherwise a
+     * subtle refreshing indicator. A failed refresh keeps the cached goals.
+     */
+    private suspend fun revalidateGoals(cache: HomeCache, force: Boolean) {
+        val now = SystemClock.nowMillis()
+        val hasCache = cache.goals.isNotEmpty()
+        if (!force && hasCache && !homeCache.goalsAreStale(cache, now)) return
+
+        _state.update {
+            it.copy(goalsLoading = !hasCache, goalsRefreshing = hasCache)
+        }
         val summary = runCatching {
             hermes.complete(
                 listOf(HermesWireMessage("user", LifePrompts.listGoals())),
                 sessionId = "lifeagent-goals",
             )
         }.getOrNull()
-        _state.update {
-            it.copy(goalsLoading = false, goals = summary?.let(::parseGoals) ?: emptyList())
+
+        if (summary != null) {
+            val goals = parseGoals(summary)
+            homeCache.putGoals(goals, SystemClock.nowMillis())
+            _state.update { it.copy(goals = goals, goalsLoading = false, goalsRefreshing = false) }
+        } else {
+            // Keep whatever we had cached; just drop the indicators.
+            _state.update { it.copy(goalsLoading = false, goalsRefreshing = false) }
         }
     }
 
@@ -146,6 +180,7 @@ class DashboardViewModel(
                 tasks = container.taskStore,
                 memos = container.memoStore,
                 reminderHistory = container.reminderHistoryStore,
+                homeCache = container.homeCacheStore,
             ) as T
         }
     }

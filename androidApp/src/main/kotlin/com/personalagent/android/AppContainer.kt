@@ -15,6 +15,7 @@ import com.personalagent.shared.hermes.HermesReminderPoller
 import com.personalagent.shared.hermes.NotifiedReminderStore
 import com.personalagent.shared.hermes.ReflectionStore
 import com.personalagent.shared.hermes.ReminderHistoryStore
+import com.personalagent.shared.home.HomeCacheStore
 import com.personalagent.shared.notes.MemoStore
 import com.personalagent.shared.profile.ProfileStore
 import com.personalagent.shared.reminder.ReminderService
@@ -74,6 +75,12 @@ class AppContainer(context: Context) {
      * copy lives in the user's Hermes memory (see [MemoStore]).
      */
     val memoStore: MemoStore = MemoStore(encrypted("memos"))
+
+    /**
+     * Stale-while-revalidate cache for the home's networked card (Goals) so the
+     * home paints instantly and doesn't re-query the agent on every appearance.
+     */
+    val homeCacheStore: HomeCacheStore = HomeCacheStore(encrypted("home_cache"))
 
     // --- Hermes connection ----------------------------------------------------
 

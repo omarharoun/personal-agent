@@ -69,6 +69,19 @@ is a floating action button, Run-a-task lives in the top-bar overflow. The old
 raw session-activity feed, the capabilities/toolsets card, and the on-home Skills
 gallery were removed; Skills is still reachable from the navigation drawer.
 
+**Caching (instant home, no blocking spinner).** The home paints immediately from
+persistent local state and revalidates in the background — never a full "Loading…"
+once anything is cached. Tasks, Memos, and Reminders already read straight from
+their own persistent local stores (`TaskStore` / `MemoStore` /
+`ReminderHistoryStore`), so they render instantly and survive relaunch. The only
+networked card, **Goals** (an agent query), is backed by a persistent
+**stale-while-revalidate** cache (`HomeCacheStore`, a JSON-over-encrypted-KV
+store): the home shows the cached goals right away, then re-asks the agent only
+when the cache is older than 6 h **or** the user hits *Refresh* (overflow) — a
+subtle spinner in the card header signals a background revalidate; the full
+"Loading…" appears only on the first-ever fetch (empty cache). This stops the
+Goals card from re-querying the agent on every home appearance.
+
 ## Framework choice & why
 
 **Kotlin Multiplatform, continuing this repo.** This codebase was already a

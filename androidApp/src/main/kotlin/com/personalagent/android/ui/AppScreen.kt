@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
@@ -398,6 +399,11 @@ private fun SubScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
+        // Edge-to-edge: the sub-screens (Notes/Tasks/Reminders/Goals/Settings) have
+        // text fields, so fold the IME inset into the content insets — the bottom
+        // padding grows with the keyboard and keeps fields reachable, without the
+        // window resizing under us.
+        contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
     ) { inner ->
         Column(Modifier.fillMaxSize().padding(inner).padding(horizontal = 16.dp)) {
             content()

@@ -119,7 +119,7 @@ fun DashboardScreen(
                         nav.onSkills?.let { open ->
                             DropdownMenuItem(text = { Text("Skills") }, onClick = { menuOpen = false; open() })
                         }
-                        DropdownMenuItem(text = { Text("Refresh") }, onClick = { menuOpen = false; vm.refresh() })
+                        DropdownMenuItem(text = { Text("Refresh") }, onClick = { menuOpen = false; vm.refresh(force = true) })
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -151,6 +151,7 @@ fun DashboardScreen(
                 GoalsCard(
                     goals = state.goals,
                     loading = state.goalsLoading,
+                    refreshing = state.goalsRefreshing,
                     onOpen = nav.onGoals,
                 )
             }
@@ -206,6 +207,7 @@ private fun LifeCard(
     title: String,
     accent: Color,
     onOpen: () -> Unit,
+    refreshing: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     Surface(
@@ -229,6 +231,16 @@ private fun LifeCard(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
+                // Subtle background-revalidate indicator (stale-while-revalidate) —
+                // shown instead of a full "Loading…" when we already have cache.
+                if (refreshing) {
+                    CircularProgressIndicator(
+                        Modifier.size(15.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.size(10.dp))
+                }
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = "Open",
@@ -253,8 +265,8 @@ private fun EmptyLine(text: String) {
 // --- Goals ------------------------------------------------------------------
 
 @Composable
-private fun GoalsCard(goals: List<String>, loading: Boolean, onOpen: () -> Unit) {
-    LifeCard("🎯", "Goals", MaterialTheme.colorScheme.tertiary, onOpen) {
+private fun GoalsCard(goals: List<String>, loading: Boolean, refreshing: Boolean, onOpen: () -> Unit) {
+    LifeCard("🎯", "Goals", MaterialTheme.colorScheme.tertiary, onOpen, refreshing = refreshing) {
         when {
             loading && goals.isEmpty() -> LoadingRow()
             goals.isEmpty() -> EmptyLine("No goals yet — tap to set what “better” looks like for you.")
