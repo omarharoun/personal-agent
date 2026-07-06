@@ -46,6 +46,12 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
 
+      # gradle.properties pins org.gradle.java.home to a local dev path that
+      # doesn't exist on CI — drop it so Gradle uses the runner's JAVA_HOME (this
+      # also fixes the Gradle call inside the Xcode preBuildScript during archive).
+      - name: Use runner JAVA_HOME for Gradle
+        run: sed -i '' '/org\.gradle\.java\.home/d' gradle.properties
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
