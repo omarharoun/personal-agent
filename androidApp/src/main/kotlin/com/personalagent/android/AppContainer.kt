@@ -17,6 +17,8 @@ import com.personalagent.shared.hermes.ReflectionStore
 import com.personalagent.shared.hermes.ReminderHistoryStore
 import com.personalagent.shared.chat.ChatStore
 import com.personalagent.shared.home.HomeCacheStore
+import com.personalagent.shared.knowledge.KnowledgeGraphService
+import com.personalagent.shared.knowledge.KnowledgeGraphStore
 import com.personalagent.shared.notes.MemoStore
 import com.personalagent.shared.profile.ProfileStore
 import com.personalagent.shared.reminder.ReminderService
@@ -88,6 +90,16 @@ class AppContainer(context: Context) {
      * restart (Hermes keeps the authoritative server copy; this is the device's).
      */
     val chatStore: ChatStore = ChatStore(encrypted("chat_history"))
+
+    /**
+     * Sealed-at-rest cache for the knowledge graph derived from the local chat
+     * records — honestly "derived from your conversations", NOT Hermes memory.
+     */
+    val knowledgeGraphStore: KnowledgeGraphStore = KnowledgeGraphStore(encrypted("knowledge_graph"))
+
+    /** Builds + caches the chat-derived knowledge graph (model path + offline fallback). */
+    val knowledgeGraphService: KnowledgeGraphService =
+        KnowledgeGraphService(chatStore, knowledgeGraphStore)
 
     // --- Hermes connection ----------------------------------------------------
 
