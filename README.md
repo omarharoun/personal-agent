@@ -33,6 +33,20 @@ connection config (URL, key) and a memory-scope key, sealed on-device.
 > [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) and the per-phase notes in
 > [`docs/PHASE0.md`](docs/PHASE0.md), [`docs/PHASE1.md`](docs/PHASE1.md).
 
+## What's new in v2.3.1
+
+- **Voice hold gives instant feedback** — the recording indicator (red dot + `m:ss`
+  timer) is now driven **purely by the touch state**, set the instant your finger
+  presses the mic, fully decoupled from the `SpeechRecognizer`. In v2.3.0 the
+  indicator was gated on the recognizer's `listening` flag, so on the first hold
+  (permission not yet granted) or when the offline recognizer errored instantly, it
+  never appeared — the hold looked completely dead. The press handler also uses
+  `requireUnconsumed = false` + `down.consume()` so nothing upstream can swallow the
+  press, and a `try/finally` guarantees the release fires (and the indicator clears)
+  even if the permission dialog steals the pointer. Transcription is still on-device
+  only; if it can't transcribe, you still see the indicator on hold and a clear
+  message on release — never a silent no-op.
+
 ## What's new in v2.3.0
 
 Fixes to two on-device composer bugs reported from the phone (Android only):

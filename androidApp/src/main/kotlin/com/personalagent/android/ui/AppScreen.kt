@@ -733,13 +733,21 @@ private fun Composer(
     // --- Voice (hold-to-talk) -------------------------------------------------
     var voiceCancelled by remember { mutableStateOf(false) }
     val voice = rememberVoiceController(onFinal = { text -> if (!voiceCancelled) onVoiceFinal(text) })
-    val listening = voice.state.listening
 
-    // Elapsed recording time (WhatsApp-style) — ticks only while listening.
+    // The recording indicator is driven PURELY by this touch state — set the
+    // instant the finger presses the mic — NOT by the SpeechRecognizer. That way
+    // the user ALWAYS sees immediate feedback on hold, even if the recognizer is
+    // still starting, unavailable, or later fails. (Root cause of "nothing at all"
+    // in v2.3.0: the indicator was gated on the recognizer's `listening` flag,
+    // which never flipped visibly when permission was ungranted or the offline
+    // recognizer errored instantly.)
+    var micPressed by remember { mutableStateOf(false) }
+
+    // Elapsed recording time (WhatsApp-style) — ticks the moment the finger presses.
     var elapsedSec by remember { mutableIntStateOf(0) }
-    LaunchedEffect(listening) {
+    LaunchedEffect(micPressed) {
         elapsedSec = 0
-        if (listening) while (true) { delay(1000); elapsedSec++ }
+        if (micPressed) while (true) { delay(1000); elapsedSec++ }
     }
     // Voice status/error messages self-dismiss so they never linger.
     LaunchedEffect(voice.state.error) {
@@ -881,9 +889,11 @@ private fun Composer(
 
                 Box(Modifier.weight(1f).padding(vertical = 10.dp, horizontal = 8.dp)) {
                     val voiceError = voice.state.error
-                    if (listening) {
-                        // Recording indicator: pulsing red dot + mm:ss elapsed, then
-                        // the live transcript once words come through.
+                    if (micPressed) {
+                        // Recording indicator — shown purely because the finger is
+                        // down on the mic (independent of the recognizer). Pulsing
+                        // red dot + mm:ss elapsed, then the live transcript if/when
+                        // words come through.
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 Modifier.size(9.dp).clip(CircleShape)
@@ -939,10 +949,20 @@ private fun Composer(
                 SendOrMicButton(
                     hasText = draft.isNotBlank(),
                     sending = sending,
-                    listening = listening,
+                    recording = micPressed,
                     onSend = onSend,
-                    onHoldStart = { voiceCancelled = false; voice.start() },
-                    onHoldEnd = { cancelled -> voiceCancelled = cancelled; voice.stop() },
+                    onHoldStart = {
+                        // Flip the visible state FIRST — feedback is guaranteed even
+                        // if voice.start() requests permission or the recognizer fails.
+                        micPressed = true
+                        voiceCancelled = false
+                        voice.start()
+                    },
+                    onHoldEnd = { cancelled ->
+                        micPressed = false
+                        voiceCancelled = cancelled
+                        voice.stop()
+                    },
                 )
             }
         }
@@ -1007,7 +1027,7 @@ private fun DockOption(
 private fun SendOrMicButton(
     hasText: Boolean,
     sending: Boolean,
-    listening: Boolean,
+    recording: Boolean,
     onSend: () -> Unit,
     onHoldStart: () -> Unit,
     onHoldEnd: (cancelled: Boolean) -> Unit,
@@ -1033,22 +1053,33 @@ private fun SendOrMicButton(
                 .size(44.dp)
                 .clip(CircleShape)
                 .background(
-                    if (listening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 )
                 .pointerInput(Unit) {
                     awaitEachGesture {
-                        val down = awaitFirstDown()
+                        // requireUnconsumed = false so nothing upstream can swallow
+                        // the press; onHoldStart fires immediately on finger-down.
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        android.util.Log.d("VoiceMic", "press down → onHoldStart")
                         onHoldStart()
                         var cancel = false
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val ch = event.changes.firstOrNull() ?: break
-                            val dx = ch.position.x - down.position.x
-                            val dy = ch.position.y - down.position.y
-                            if (dx < -120f || dy < -120f) cancel = true
-                            if (!ch.pressed) break
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val ch = event.changes.firstOrNull() ?: break
+                                val dx = ch.position.x - down.position.x
+                                val dy = ch.position.y - down.position.y
+                                if (dx < -120f || dy < -120f) cancel = true
+                                if (!ch.pressed) { ch.consume(); break }
+                            }
+                        } finally {
+                            // try/finally guarantees release fires even if the gesture
+                            // is cancelled (e.g. the permission dialog steals focus),
+                            // so the indicator never gets stuck on.
+                            android.util.Log.d("VoiceMic", "release → onHoldEnd(cancel=$cancel)")
+                            onHoldEnd(cancel)
                         }
-                        onHoldEnd(cancel)
                     }
                 },
             contentAlignment = Alignment.Center,
