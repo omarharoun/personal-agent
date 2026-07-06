@@ -12,6 +12,7 @@ import com.personalagent.shared.hermes.HermesClient
 import com.personalagent.shared.hermes.HermesConfig
 import com.personalagent.shared.hermes.HermesException
 import com.personalagent.shared.hermes.HermesWireMessage
+import com.personalagent.shared.hermes.LifePrompts
 import com.personalagent.shared.safety.CrisisLevel
 import com.personalagent.shared.safety.CrisisRecognizer
 import com.personalagent.shared.safety.CrisisResponder
@@ -247,7 +248,15 @@ class ConversationViewModel(
 
         // Snapshot the wire history (includes the user turn just added) BEFORE the
         // empty assistant placeholder, so we don't send a blank assistant message.
-        val wire = wireMessagesFor(target)
+        // When the user is asking to schedule/automate something, prepend a single
+        // system steer so the agent delivers IN-APP (no send()/push/external channel)
+        // — the fix for the "scheduled task never delivered" failure.
+        val wire = buildList {
+            if (LifePrompts.looksLikeScheduling(text)) {
+                add(HermesWireMessage(role = "system", content = LifePrompts.schedulingSteer()))
+            }
+            addAll(wireMessagesFor(target))
+        }
         val convId = conversationIdFor(target)
         val assistantId = appendTo(target, Message.Role.ASSISTANT, "")
 

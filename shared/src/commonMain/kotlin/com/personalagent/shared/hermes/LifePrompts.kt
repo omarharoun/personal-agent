@@ -15,6 +15,43 @@ object LifePrompts {
     /** Categories the user can frame a goal under (what "better" means to them). */
     val GOAL_CATEGORIES = listOf("Health", "Relationships", "Learning", "Habits", "Work", "Other")
 
+    /**
+     * Steering injected as a `system` turn ONLY when the user is asking to schedule
+     * something. It fixes the failure the user hit: the agent tried to *push* a
+     * scheduled result via `send()`, which the Hermes API server doesn't support,
+     * so nothing was delivered. This client delivers on the user's own terms —
+     * IN-APP, by polling the schedule — with no external messaging or push. So we
+     * tell the agent exactly that, and forbid the channels the user doesn't want.
+     */
+    fun schedulingSteer(): String =
+        "SCHEDULING CONTRACT for this client: this app delivers scheduled tasks and reminders " +
+            "IN-APP by polling your schedule (/api/jobs) — it shows the user the result the next " +
+            "time they're in the app. You CANNOT push messages yourself: do NOT call send(), and " +
+            "do NOT use any external messaging, email, chat, webhook, or OS push notification. " +
+            "When the user asks to schedule or automate something, create the job with LOCAL " +
+            "delivery only, then confirm it in plain text (what, and when it will run). If a task " +
+            "produces content (e.g. a daily digest), say that its result will appear here in the " +
+            "app when it runs. Never claim you messaged or notified them through any outside channel."
+
+    /**
+     * True when [text] reads like a request to schedule / automate / recur
+     * something — the only case where [schedulingSteer] is injected. Deliberately
+     * broad on scheduling verbs, but requires an automation/recurrence cue so plain
+     * one-off "remind me" chatter (already handled locally) isn't over-steered.
+     */
+    fun looksLikeScheduling(text: String): Boolean {
+        val t = text.lowercase()
+        val verb = listOf("schedule", "automate", "set up a task", "recurring", "cron", "run this", "run it")
+            .any { t.contains(it) }
+        val recurrence = listOf(
+            "every day", "each day", "every morning", "each morning", "every week", "each week",
+            "every night", "daily", "weekly", "monthly", "each night", "every hour", "hourly",
+            "every month", "at 0", "at 1", "at 2", "at 3", "at 4", "at 5", "at 6", "at 7",
+            "at 8", "at 9", "a.m.", "p.m.", " am", " pm",
+        ).any { t.contains(it) }
+        return verb || (t.contains("remind") && recurrence)
+    }
+
     /** Save a goal into the agent's memory. */
     fun saveGoal(category: String, goal: String): String =
         "I want to set a personal goal. Category: $category. Goal: \"$goal\". " +
