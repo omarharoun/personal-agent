@@ -33,6 +33,30 @@ connection config (URL, key) and a memory-scope key, sealed on-device.
 > [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) and the per-phase notes in
 > [`docs/PHASE0.md`](docs/PHASE0.md), [`docs/PHASE1.md`](docs/PHASE1.md).
 
+## What's new in v2.3.0
+
+Fixes to two on-device composer bugs reported from the phone (Android only):
+
+- **Attachment dock (`+`) fixed** — the three options (Camera / Photo / File) now
+  render as a compact vertical column that grows straight **up from just above the
+  `+` button** (bottom-anchored transition), fully on-screen. Previously the default
+  reveal animation made them read as a clipped, half-off-screen left-edge drawer.
+  Tap the `+` to open (stays open, tap an option), or **press-and-hold and slide up**
+  to the macOS-Dock magnify; release on the highlighted option to trigger it.
+- **Voice fixed & never silent** — hold the mic (empty field) to record; a live
+  **recording indicator** (red dot + `m:ss` elapsed + partial transcript) shows while
+  listening; release sends the transcript, slide away cancels. First hold now requests
+  `RECORD_AUDIO` and, once granted, prompts you to hold again (avoids the old
+  record-after-release race). Any failure — permission denied, no on-device speech
+  pack, recognizer unavailable — now surfaces a clear message instead of doing nothing.
+  Transcription stays **on-device** (system `SpeechRecognizer`, `EXTRA_PREFER_OFFLINE`):
+  no audio and no third-party/cloud speech service — only the resulting text goes to
+  your Hermes. *If a device has no offline speech pack, the app tells you to enable it
+  in system settings rather than falling back to any cloud recognizer.*
+- **Floating composer (really this time)** — removed the pill surface/border/shadow
+  that was still drawn behind the text; the field now floats directly over the page
+  (the `+` and send controls keep their own circular backgrounds for legibility).
+
 ## What's new in v2.2.0
 
 UX pass on the chat surface plus the first iOS CI build:
@@ -121,9 +145,10 @@ subtle spinner in the card header signals a background revalidate; the full
 "Loading…" appears only on the first-ever fetch (empty cache). This stops the
 Goals card from re-querying the agent on every home appearance.
 
-**Chat composer.** The chat input is a floating, softly-shadowed rounded pill
-(messenger-style) that docks flush above the keyboard (edge-to-edge insets),
-grows to a few lines, and has a clear circular send button.
+**Chat composer.** The chat input floats directly over the transcript with no
+surface behind it (messenger-style), docks flush above the keyboard (edge-to-edge
+insets), grows to a few lines, and has a clear circular send button plus a left
+`+` attachment dock and hold-to-talk voice (see *What's new in v2.3.0*).
 
 **🔒 Support.** "Find support" on the Support screen opens a dedicated Support
 Resources view (`SupportResourcesScreen`) with gentle guidance, real crisis

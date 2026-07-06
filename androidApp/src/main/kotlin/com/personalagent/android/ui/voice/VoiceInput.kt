@@ -37,6 +37,7 @@ class VoiceController internal constructor(
 ) {
     fun start() = ensurePermissionThenStart()
     fun stop() = stopFn()
+    fun clearError() { state.error = null }
 }
 
 class VoiceState {
@@ -46,6 +47,13 @@ class VoiceState {
         internal set
     /** Set when speech recognition is unavailable on this device. */
     var unavailable by mutableStateOf(false)
+        internal set
+    /**
+     * User-facing message when a recording attempt fails (permission denied,
+     * no on-device speech pack, etc). Null while things are fine. The composer
+     * surfaces this so voice never silently "does nothing".
+     */
+    var error by mutableStateOf<String?>(null)
         internal set
 }
 
@@ -66,8 +74,13 @@ fun rememberVoiceController(onFinal: (String) -> Unit): VoiceController {
 
     val startListening = remember {
         fn@{
-            val rec = recognizer ?: run { state.unavailable = true; return@fn }
+            val rec = recognizer ?: run {
+                state.unavailable = true
+                state.error = "Voice input isn't available on this device."
+                return@fn
+            }
             state.partial = ""
+            state.error = null
             state.listening = true
             rec.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {}
@@ -77,6 +90,20 @@ fun rememberVoiceController(onFinal: (String) -> Unit): VoiceController {
                 override fun onEndOfSpeech() {}
                 override fun onError(error: Int) {
                     state.listening = false
+                    // Benign cases (released without speaking / recognizer still
+                    // resetting) stay silent; real problems get a visible message.
+                    state.error = when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH,
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
+                        SpeechRecognizer.ERROR_CLIENT,
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> null
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+                            "Microphone permission is needed for voice messages."
+                        SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
+                        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
+                            "Turn on offline speech recognition in your system settings to use voice."
+                        else -> "Couldn't capture that — try again."
+                    }
                 }
                 override fun onPartialResults(partialResults: Bundle?) {
                     partialResults
@@ -107,10 +134,19 @@ fun rememberVoiceController(onFinal: (String) -> Unit): VoiceController {
         }
     }
 
-    // Runtime RECORD_AUDIO permission — request on first hold, then start.
+    // Runtime RECORD_AUDIO permission — requested on the first hold. We do NOT
+    // auto-start on grant: the finger is already lifted by the time the dialog
+    // resolves, so we'd record-after-release. Instead we prompt the user to hold
+    // again, and handle a denial with a clear, non-silent message.
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) startListening() }
+    ) { granted ->
+        state.error = if (granted) {
+            "Mic ready — press and hold to record."
+        } else {
+            "Microphone access is needed for voice messages. Enable it in Settings."
+        }
+    }
 
     val ensurePermissionThenStart = remember {
         {

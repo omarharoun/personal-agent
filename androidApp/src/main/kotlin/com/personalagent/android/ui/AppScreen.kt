@@ -93,6 +93,10 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -129,6 +133,7 @@ import com.personalagent.android.ui.voice.rememberVoiceController
 import com.personalagent.shared.cloud.CloudProvider
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
@@ -730,6 +735,17 @@ private fun Composer(
     val voice = rememberVoiceController(onFinal = { text -> if (!voiceCancelled) onVoiceFinal(text) })
     val listening = voice.state.listening
 
+    // Elapsed recording time (WhatsApp-style) — ticks only while listening.
+    var elapsedSec by remember { mutableIntStateOf(0) }
+    LaunchedEffect(listening) {
+        elapsedSec = 0
+        if (listening) while (true) { delay(1000); elapsedSec++ }
+    }
+    // Voice status/error messages self-dismiss so they never linger.
+    LaunchedEffect(voice.state.error) {
+        if (voice.state.error != null) { delay(3500); voice.clearError() }
+    }
+
     // --- Attachment dock state ------------------------------------------------
     var menuOpen by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
@@ -788,12 +804,18 @@ private fun Composer(
             .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
             .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 12.dp),
     ) {
-        // Dock options — float ABOVE the "+", stacked, magnifying toward the finger.
-        AnimatedVisibility(visible = menuOpen || dragging) {
+        // Dock options — a compact vertical column that grows straight UP from just
+        // above the "+" button (anchored bottom-left), magnifying toward the finger.
+        // Explicit bottom-anchored transition so it never reads as a left-edge drawer.
+        AnimatedVisibility(
+            visible = menuOpen || dragging,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom),
+        ) {
             Column(
                 horizontalAlignment = Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(start = 2.dp, bottom = 12.dp),
+                modifier = Modifier.padding(start = 6.dp, bottom = 12.dp),
             ) {
                 options.forEachIndexed { i, opt ->
                     val center = optionCenters.getOrNull(i) ?: Float.NaN
@@ -815,16 +837,12 @@ private fun Composer(
             }
         }
 
-        Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
-            shadowElevation = 10.dp,
-            tonalElevation = 2.dp,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        // FLOATING composer — no pill/surface behind the text (per the user's ask);
+        // the "+" and send controls keep their own circular backgrounds so they stay
+        // legible, while the field itself floats directly over the page.
+        run {
             Row(
-                Modifier.padding(start = 6.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                Modifier.fillMaxWidth().padding(start = 6.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 // The "+" attachment trigger (hold-and-slide, or tap to toggle).
@@ -862,13 +880,38 @@ private fun Composer(
                 )
 
                 Box(Modifier.weight(1f).padding(vertical = 10.dp, horizontal = 8.dp)) {
+                    val voiceError = voice.state.error
                     if (listening) {
+                        // Recording indicator: pulsing red dot + mm:ss elapsed, then
+                        // the live transcript once words come through.
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier.size(9.dp).clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.error),
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                "%d:%02d".format(elapsedSec / 60, elapsedSec % 60),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.size(10.dp))
+                            Text(
+                                voice.state.partial.ifBlank { "release to send · slide away to cancel" },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (voice.state.partial.isBlank())
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else if (voiceError != null && draft.isEmpty()) {
+                        // Never fail silently — tell the user why voice didn't record.
                         Text(
-                            voice.state.partial.ifBlank { "Listening… release to send · slide away to cancel" },
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (voice.state.partial.isBlank())
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            else MaterialTheme.colorScheme.onSurface,
+                            voiceError,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
                         )
                     } else {
                         if (draft.isEmpty()) {
