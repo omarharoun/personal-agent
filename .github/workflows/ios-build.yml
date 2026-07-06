@@ -1,0 +1,112 @@
+name: iOS build (unsigned IPA)
+
+# MANUAL ONLY — never runs on push/PR. Trigger it from the Actions tab
+# ("Run workflow") or with:  gh workflow run "iOS build (unsigned IPA)"
+#
+# Produces an UNSIGNED .ipa so you can sideload the Hermes Life Agent onto your
+# own iPhone with a FREE Apple ID via AltStore / Sideloadly (they re-sign it on
+# your Mac/PC) — no paid Apple Developer account and no signing secrets in CI.
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Xcode build configuration"
+        required: true
+        default: "Release"
+        type: choice
+        options:
+          - Release
+          - Debug
+
+jobs:
+  build:
+    # Apple-silicon runner — required: the shared KMP framework links iosArm64 and
+    # the MLX Swift package is arm64-only.
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -switch /Applications/Xcode.app
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: iosApp
+        run: xcodegen generate
+
+      # Warm the Kotlin/Native cache and surface any shared-module compile errors
+      # early. The Xcode project's own preBuildScript runs
+      # `:shared:embedAndSignAppleFrameworkForXcode` during the archive, which is
+      # what actually places Shared.framework where FRAMEWORK_SEARCH_PATHS expects.
+      - name: Warm up shared KMP (iosArm64)
+        run: ./gradlew :shared:compileKotlinIosArm64 --stacktrace
+
+      - name: Resolve Swift package dependencies
+        working-directory: iosApp
+        run: xcodebuild -resolvePackageDependencies -project iosApp.xcodeproj -scheme iosApp
+
+      - name: Archive (unsigned, generic iOS device / arm64)
+        working-directory: iosApp
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration "${{ github.event.inputs.configuration }}" \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/iosApp.xcarchive" \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            | xcpretty || xcodebuild \
+            -project iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration "${{ github.event.inputs.configuration }}" \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/iosApp.xcarchive" \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP_PATH=$(ls -d "$RUNNER_TEMP/iosApp.xcarchive/Products/Applications/"*.app | head -n1)
+          echo "App: $APP_PATH"
+          WORK="$RUNNER_TEMP/ipa"
+          rm -rf "$WORK"
+          mkdir -p "$WORK/Payload"
+          cp -R "$APP_PATH" "$WORK/Payload/"
+          (cd "$WORK" && zip -qry "$RUNNER_TEMP/hermes-life-agent-unsigned.ipa" Payload)
+          ls -lh "$RUNNER_TEMP/hermes-life-agent-unsigned.ipa"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-life-agent-unsigned-ipa
+          path: ${{ runner.temp }}/hermes-life-agent-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
