@@ -47,3 +47,46 @@ SOFTWARE.
 Sources:
 - Hermes Agent — https://github.com/NousResearch/hermes-agent (repo LICENSE: MIT)
 - `@nous-research/ui` v0.18.2 (package `license: "MIT"`)
+
+## Vosk — on-device speech-to-text engine (Apache-2.0)
+
+Offline voice input is powered by **Vosk** (`com.alphacephei:vosk-android:0.3.47`),
+an open-source speech recognition toolkit. The engine's native library
+(`libvosk.so`) is bundled in the APK, and the small English acoustic/language model
+(**`vosk-model-small-en-us-0.15`**, ~40 MB) is downloaded once on first voice use
+into app-private storage. All audio capture and transcription happen on the device;
+no audio leaves the phone and no cloud speech service is used. Vosk (and its JNA
+dependency, `net.java.dev.jna:jna`, also Apache-2.0) is used under the Apache License
+2.0. The Vosk models are distributed under Apache-2.0 as well.
+
+We evaluated **whisper.cpp / whisper.tflite** (MIT) as an alternative on-device
+engine; it is a fine choice but requires compiling native code and hand-rolling the
+audio loop, whereas the Vosk AAR ships a ready-to-use streaming recognizer over
+`AudioRecord`. We chose Vosk for the lower integration risk. (Whisper is MIT-licensed;
+credited here in case it is adopted later.)
+
+Sources:
+- Vosk API — https://github.com/alphacep/vosk-api (LICENSE: Apache-2.0)
+- Vosk models — https://alphacephei.com/vosk/models (Apache-2.0)
+- JNA — https://github.com/java-native-access/jna (Apache-2.0)
+- whisper.cpp — https://github.com/ggerganov/whisper.cpp (LICENSE: MIT) — evaluated alternative
+
+```
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   Copyright 2020-2024 Alpha Cephei Inc. (Vosk) and the JNA authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```

@@ -19,6 +19,9 @@ androidx-test-runner = "1.6.2"
 onnxruntime = "1.20.0"
 # On-device LLM — MediaPipe LLM Inference API for a small local model (Step 3).
 mediapipeGenai = "0.10.24"
+# On-device speech-to-text — Vosk (Apache-2.0). Our OWN local engine; audio never
+# leaves the device and it does NOT depend on the phone's Google offline pack.
+vosk = "0.3.47"
 
 # Cloud transport — Ktor multiplatform HTTP client for the Step 4 escalation
 # path (zero-retention HTTPS calls to a frontier model). Engine is selected per
@@ -44,6 +47,7 @@ androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtim
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "androidx-work" }
 
 onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android", version.ref = "onnxruntime" }
+vosk-android = { module = "com.alphacephei:vosk-android", version.ref = "vosk" }
 mediapipe-tasks-genai = { module = "com.google.mediapipe:tasks-genai", version.ref = "mediapipeGenai" }
 
 # Ktor multiplatform HTTP client (Step 4 cloud transport).

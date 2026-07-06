@@ -33,6 +33,33 @@ connection config (URL, key) and a memory-scope key, sealed on-device.
 > [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) and the per-phase notes in
 > [`docs/PHASE0.md`](docs/PHASE0.md), [`docs/PHASE1.md`](docs/PHASE1.md).
 
+## What's new in v2.4.0
+
+**Voice now uses our OWN bundled offline engine — works on any Android phone.**
+
+- Dropped the dependency on the phone's Google offline speech pack (and
+  `SpeechRecognizer`/`EXTRA_PREFER_OFFLINE`) for transcription. Voice is now backed
+  by **[Vosk](https://github.com/alphacep/vosk-api) (Apache-2.0)**, bundled in the
+  APK as a native engine (`libvosk.so`). Chosen over whisper.cpp/whisper.tflite
+  because the Vosk AAR ships a ready-to-use streaming recognizer over `AudioRecord`
+  (no NDK build, no manual audio loop) — lower integration risk for a solid offline
+  result. (See [ATTRIBUTION.md](ATTRIBUTION.md).)
+- **Fully offline, fully private:** all audio capture + transcription happen on the
+  device. Nothing is sent to Google or any cloud. The only network touch is a
+  **one-time ~40 MB model download** (`vosk-model-small-en-us-0.15`) on first voice
+  use, cached in app-private storage — the base APK is not bloated by it. The
+  "model not downloaded yet" state shows a **progress indicator** (`Setting up
+  offline voice… NN%`), never a silent no-op.
+- **Record → transcribe → send path:** press mic (touch-driven red-dot + timer
+  feedback shows instantly) → Vosk `SpeechService` opens `AudioRecord` at 16 kHz and
+  streams PCM to the recognizer → live partial transcript appears → release stops the
+  mic and flushes the **final transcript**, which is sent to Hermes exactly like typed
+  text. Slide away to cancel; `RECORD_AUDIO` is requested on first use; every failure
+  path surfaces a clear message.
+- APK grows from ~22 MB to **~39.5 MB** (native `libvosk.so` for arm64-v8a +
+  armeabi-v7a, the two ABIs that cover essentially all real phones). The language
+  model stays out of the APK (downloaded on demand).
+
 ## What's new in v2.3.1
 
 - **Voice hold gives instant feedback** — the recording indicator (red dot + `m:ss`

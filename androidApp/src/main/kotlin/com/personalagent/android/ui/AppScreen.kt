@@ -889,7 +889,26 @@ private fun Composer(
 
                 Box(Modifier.weight(1f).padding(vertical = 10.dp, horizontal = 8.dp)) {
                     val voiceError = voice.state.error
-                    if (micPressed) {
+                    if (voice.state.downloading) {
+                        // One-time offline-model setup — show real progress so the
+                        // "model not downloaded yet" state is never a silent no-op.
+                        val pct = (voice.state.downloadProgress * 100).toInt()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.size(10.dp))
+                            Text(
+                                "Setting up offline voice… $pct%",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else if (micPressed) {
                         // Recording indicator — shown purely because the finger is
                         // down on the mic (independent of the recognizer). Pulsing
                         // red dot + mm:ss elapsed, then the live transcript if/when

@@ -28,11 +28,16 @@ android {
         applicationId = "com.personalagent.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 14
-        versionName = "2.3.1"
+        versionCode = 15
+        versionName = "2.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // No native libraries: Hermes is the brain (server-side), so the app ships
-        // no on-device ML runtime — it's a thin, arch-agnostic client.
+        // Hermes is still the brain (server-side). The only on-device native code is
+        // the Vosk speech engine (libvosk.so) for fully-offline voice input. Limit the
+        // packaged ABIs to the two that cover essentially all real phones so the
+        // native payload doesn't balloon the APK.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
@@ -95,6 +100,11 @@ dependencies {
     // Local reminder/reflection delivery via WorkManager (polls Hermes /api/jobs
     // and raises local notifications — no push service, no server we control).
     implementation(libs.androidx.work.runtime.ktx)
+
+    // Our OWN on-device speech-to-text (Vosk, Apache-2.0). Bundles the native
+    // engine (libvosk.so); the language model is downloaded on first voice use.
+    // Audio never leaves the device and it does not use Google's offline pack.
+    implementation(libs.vosk.android)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
