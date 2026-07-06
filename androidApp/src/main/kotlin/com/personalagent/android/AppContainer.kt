@@ -15,7 +15,10 @@ import com.personalagent.shared.hermes.HermesReminderPoller
 import com.personalagent.shared.hermes.NotifiedReminderStore
 import com.personalagent.shared.hermes.ReflectionStore
 import com.personalagent.shared.hermes.ReminderHistoryStore
+import com.personalagent.shared.notes.MemoStore
+import com.personalagent.shared.profile.ProfileStore
 import com.personalagent.shared.reminder.ReminderService
+import com.personalagent.shared.tasks.TaskStore
 import com.personalagent.shared.safety.CrisisRecognizer
 import com.personalagent.shared.safety.CrisisResourceProvider
 import com.personalagent.shared.safety.CrisisResponder
@@ -57,6 +60,20 @@ class AppContainer(context: Context) {
 
     /** Local app state (notes/reminders/plan scaffolding). Sealed at rest. */
     val store: LocalStore = PersistentLocalStore(encrypted("personal_agent_store"))
+
+    // --- Home dashboard: name + local Tasks/Memos indexes (sealed at rest) -----
+
+    /** The user's display name for the personal greeting (user-set or agent-derived). */
+    val profileStore: ProfileStore = ProfileStore(encrypted("profile"))
+
+    /** Local to-do list (device-local by design; see [TaskStore]). */
+    val taskStore: TaskStore = TaskStore(encrypted("tasks"))
+
+    /**
+     * Local index of saved memos so the app can show them back. The authoritative
+     * copy lives in the user's Hermes memory (see [MemoStore]).
+     */
+    val memoStore: MemoStore = MemoStore(encrypted("memos"))
 
     // --- Hermes connection ----------------------------------------------------
 

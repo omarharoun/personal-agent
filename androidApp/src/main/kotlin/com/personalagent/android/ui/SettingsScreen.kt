@@ -12,9 +12,13 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -36,11 +40,38 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        ProfileSection(container)
+        HorizontalDivider()
         HermesSection(container, onDisconnect)
         HorizontalDivider()
         AppearanceSection(themeMode, onThemeModeChange)
         HorizontalDivider()
         AboutSection()
+    }
+}
+
+@Composable
+private fun ProfileSection(container: AppContainer) {
+    var name by remember { mutableStateOf(container.profileStore.userName().orEmpty()) }
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+        Text("Your name", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Used for the greeting on your home screen. Leave it blank and your agent " +
+                "will try to recall your name from memory.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        OutlinedTextField(
+            value = name,
+            onValueChange = {
+                name = it
+                container.profileStore.setUserName(it)
+            },
+            label = { Text("First name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
     }
 }
 

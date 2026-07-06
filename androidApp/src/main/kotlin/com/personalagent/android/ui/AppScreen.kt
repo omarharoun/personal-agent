@@ -33,7 +33,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -90,7 +92,7 @@ import com.personalagent.shared.cloud.CloudProvider
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
-private enum class Surface { DASHBOARD, CONVERSATION, SETTINGS, SUPPORT, NOTES, REMINDERS, GOALS, REFLECTION, TASKS, SKILLS }
+private enum class Surface { DASHBOARD, CONVERSATION, SETTINGS, SUPPORT, NOTES, REMINDERS, GOALS, REFLECTION, TASKS, RUN_TASK, SKILLS }
 
 /**
  * The app shell — an Open-WebUI-style chat surface: a slide-out navigation drawer
@@ -127,8 +129,10 @@ fun AppScreen(
         viewModel(factory = ReflectionViewModel.Factory(container))
     val dashboardVm: DashboardViewModel =
         viewModel(factory = DashboardViewModel.Factory(container))
-    val taskVm: TaskRunViewModel =
+    val taskRunVm: TaskRunViewModel =
         viewModel(factory = TaskRunViewModel.Factory(container))
+    val tasksVm: TasksViewModel =
+        viewModel(factory = TasksViewModel.Factory(container))
     val skillsVm: SkillsViewModel =
         viewModel(factory = SkillsViewModel.Factory(container))
 
@@ -154,6 +158,9 @@ fun AppScreen(
     }
 
     fun closeDrawer() = scope.launch { drawerState.close() }
+    // Returning to the home refreshes it so task check-offs, new memos, and new
+    // reminders made on a sub-screen show up immediately in the previews.
+    fun backHome() { dashboardVm.refresh(); surface = Surface.DASHBOARD }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -165,9 +172,11 @@ fun AppScreen(
                 onNewChat = { convoVm.newChat(); surface = Surface.CONVERSATION; closeDrawer() },
                 onSelectChat = { id -> convoVm.selectChat(id); surface = Surface.CONVERSATION; closeDrawer() },
                 onOpenNotes = { surface = Surface.NOTES; closeDrawer() },
+                onOpenTasks = { tasksVm.refresh(); surface = Surface.TASKS; closeDrawer() },
                 onOpenReminders = { remindersVm.refresh(); surface = Surface.REMINDERS; closeDrawer() },
                 onOpenGoals = { surface = Surface.GOALS; closeDrawer() },
                 onOpenReflection = { surface = Surface.REFLECTION; closeDrawer() },
+                onOpenSkills = { surface = Surface.SKILLS; closeDrawer() },
                 onOpenSettings = { surface = Surface.SETTINGS; closeDrawer() },
                 onOpenSupport = { surface = Surface.SUPPORT; closeDrawer() },
             )
@@ -182,33 +191,37 @@ fun AppScreen(
                     onReminders = { remindersVm.refresh(); surface = Surface.REMINDERS },
                     onGoals = { surface = Surface.GOALS },
                     onReflection = { surface = Surface.REFLECTION },
-                    onNotes = { surface = Surface.NOTES },
-                    onTasks = { surface = Surface.TASKS },
+                    onNotes = { notesVm.refresh(); surface = Surface.NOTES },
+                    onTasks = { tasksVm.refresh(); surface = Surface.TASKS },
+                    onRunTask = { surface = Surface.RUN_TASK },
                     onSkills = { surface = Surface.SKILLS },
                 ),
             )
-            Surface.SETTINGS -> SubScreen("Settings", { surface = Surface.DASHBOARD }, snackbar) {
+            Surface.SETTINGS -> SubScreen("Settings", { backHome() }, snackbar) {
                 SettingsScreen(container, themeMode, onThemeModeChange, onDisconnect = onDisconnect)
             }
-            Surface.SUPPORT -> SubScreen("Support", { surface = Surface.DASHBOARD }, snackbar) {
+            Surface.SUPPORT -> SubScreen("Support", { backHome() }, snackbar) {
                 SafetyScreen(safetyVm, snackbar)
             }
-            Surface.NOTES -> SubScreen("Notes", { surface = Surface.DASHBOARD }, snackbar) {
+            Surface.NOTES -> SubScreen("Memos", { backHome() }, snackbar) {
                 NotesScreen(notesVm)
             }
-            Surface.REMINDERS -> SubScreen("Reminders", { surface = Surface.DASHBOARD }, snackbar) {
+            Surface.REMINDERS -> SubScreen("Reminders", { backHome() }, snackbar) {
                 RemindersScreen(remindersVm)
             }
-            Surface.GOALS -> SubScreen("Goals", { surface = Surface.DASHBOARD }, snackbar) {
+            Surface.GOALS -> SubScreen("Goals", { backHome() }, snackbar) {
                 GoalsScreen(goalsVm)
             }
-            Surface.REFLECTION -> SubScreen("Reflection", { surface = Surface.DASHBOARD }, snackbar) {
+            Surface.REFLECTION -> SubScreen("Reflection", { backHome() }, snackbar) {
                 ReflectionScreen(reflectionVm)
             }
-            Surface.TASKS -> SubScreen("Run a task", { surface = Surface.DASHBOARD }, snackbar) {
-                TaskRunScreen(taskVm)
+            Surface.TASKS -> SubScreen("Tasks", { backHome() }, snackbar) {
+                TasksScreen(tasksVm)
             }
-            Surface.SKILLS -> SubScreen("Skills", { surface = Surface.DASHBOARD }, snackbar) {
+            Surface.RUN_TASK -> SubScreen("Run a task", { backHome() }, snackbar) {
+                TaskRunScreen(taskRunVm)
+            }
+            Surface.SKILLS -> SubScreen("Skills", { backHome() }, snackbar) {
                 SkillsScreen(skillsVm)
             }
             Surface.CONVERSATION -> ConversationContent(
@@ -231,9 +244,11 @@ private fun AppDrawer(
     onNewChat: () -> Unit,
     onSelectChat: (Long) -> Unit,
     onOpenNotes: () -> Unit,
+    onOpenTasks: () -> Unit,
     onOpenReminders: () -> Unit,
     onOpenGoals: () -> Unit,
     onOpenReflection: () -> Unit,
+    onOpenSkills: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSupport: () -> Unit,
 ) {
@@ -302,8 +317,20 @@ private fun AppDrawer(
                 onClick = onOpenDashboard,
             )
             NavigationDrawerItem(
+                icon = { Icon(Icons.Filled.Flag, null) },
+                label = { Text("Goals") },
+                selected = currentSurface == Surface.GOALS,
+                onClick = onOpenGoals,
+            )
+            NavigationDrawerItem(
+                icon = { Icon(Icons.Filled.CheckCircle, null) },
+                label = { Text("Tasks") },
+                selected = currentSurface == Surface.TASKS,
+                onClick = onOpenTasks,
+            )
+            NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.Description, null) },
-                label = { Text("Notes") },
+                label = { Text("Memos") },
                 selected = currentSurface == Surface.NOTES,
                 onClick = onOpenNotes,
             )
@@ -314,16 +341,16 @@ private fun AppDrawer(
                 onClick = onOpenReminders,
             )
             NavigationDrawerItem(
-                icon = { Icon(Icons.Filled.Flag, null) },
-                label = { Text("Goals") },
-                selected = currentSurface == Surface.GOALS,
-                onClick = onOpenGoals,
-            )
-            NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.SelfImprovement, null) },
                 label = { Text("Reflection") },
                 selected = currentSurface == Surface.REFLECTION,
                 onClick = onOpenReflection,
+            )
+            NavigationDrawerItem(
+                icon = { Icon(Icons.Filled.AutoAwesome, null) },
+                label = { Text("Skills") },
+                selected = currentSurface == Surface.SKILLS,
+                onClick = onOpenSkills,
             )
             NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.FavoriteBorder, null) },

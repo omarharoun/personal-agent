@@ -45,6 +45,30 @@ re-implemented natively in Compose — no Hermes code/CSS/fonts/logo are bundled
 See [`ATTRIBUTION.md`](ATTRIBUTION.md). A matching warm-paper light theme is
 included.
 
+### Home dashboard
+
+The home is a warm, personal "life OS" board, not a technical feed. It opens with
+a time-of-day greeting + the user's name ("Good evening, Omar.") and a date line,
+then four live **life-area cards**, each previewing real content and tapping into
+its full screen:
+
+| Card | Preview shows | Real source |
+|------|---------------|-------------|
+| **Goals** | Top 1–3 current goals | The agent's own memory — `POST /v1/chat/completions` with the `LifePrompts.listGoals()` prompt, parsed into bullets. |
+| **Tasks** | Up to 3 open to-dos, check off inline | `TaskStore` — a lightweight to-do list kept **locally on the device** (instant, offline; the Tasks screen says so). |
+| **Memos** | Latest 2–3 saved notes | `MemoStore` — a local index of notes; the authoritative copy lives in **Hermes memory** (Hermes has no "list my notes" endpoint, so the app mirrors what it saved). |
+| **Reminders** | Next few upcoming | `GET /api/jobs` merged with local reminder history (`ReminderHistory`). |
+
+The **greeting name** comes from a locally-stored "Your name" (Settings → *Your
+name*); if that's blank the app asks the agent **once** ("what's my first name?"),
+accepts the reply only if it's a plausible name, and caches it. If neither is
+known it greets with no name — never a fabricated one.
+
+Chat and **Run a task** (the tool-use preview flow) are kept **secondary** — Chat
+is a floating action button, Run-a-task lives in the top-bar overflow. The old
+raw session-activity feed, the capabilities/toolsets card, and the on-home Skills
+gallery were removed; Skills is still reachable from the navigation drawer.
+
 ## Framework choice & why
 
 **Kotlin Multiplatform, continuing this repo.** This codebase was already a

@@ -7,6 +7,10 @@ import com.personalagent.android.AppContainer
 import com.personalagent.shared.hermes.HermesClient
 import com.personalagent.shared.hermes.HermesException
 import com.personalagent.shared.hermes.HermesWireMessage
+import com.personalagent.shared.model.Ids
+import com.personalagent.shared.notes.Memo
+import com.personalagent.shared.notes.MemoStore
+import com.personalagent.shared.util.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,24 +18,29 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Quick note capture — stored in the user's **Hermes memory**, server-side. The
- * app keeps NO second copy of note content (per the global rule): we send the
- * note to the agent to remember and show its confirmation. The small
- * [State.sessionCaptures] list is ephemeral UX feedback for the current screen
- * visit only (cleared when the app restarts), not a persistent store.
+ * Quick memo capture. The note's content is sent to the user's **Hermes memory**
+ * (server-side) so the agent can recall it in chat. A small LOCAL index
+ * ([MemoStore]) mirrors what was saved so the Notes screen and home can list
+ * recent memos back — Hermes has no "list my notes" endpoint. The index is a
+ * display convenience, sealed at rest; it is not a second authoritative store.
  */
 class NotesViewModel(
     private val hermes: HermesClient,
+    private val memos: MemoStore,
 ) : ViewModel() {
 
     data class State(
         val saving: Boolean = false,
-        val sessionCaptures: List<String> = emptyList(),
+        val recent: List<Memo> = emptyList(),
         val message: String? = null,
     )
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
+
+    init { refresh() }
+
+    fun refresh() = _state.update { it.copy(recent = memos.all()) }
 
     fun saveNote(text: String) {
         val note = text.trim()
@@ -49,10 +58,12 @@ class NotesViewModel(
                     ),
                     sessionId = "lifeagent-notes",
                 )
+                val now = SystemClock.nowMillis()
+                memos.add(Memo(id = Ids.next(now), text = note, savedAt = now))
                 _state.update {
                     it.copy(
                         saving = false,
-                        sessionCaptures = listOf(note) + it.sessionCaptures,
+                        recent = memos.all(),
                         message = reply.ifBlank { "Saved to your agent's memory." },
                     )
                 }
@@ -62,6 +73,12 @@ class NotesViewModel(
                 _state.update { it.copy(saving = false, message = e.message ?: "Couldn't save the note.") }
             }
         }
+    }
+
+    /** Remove a memo from the LOCAL index only (Hermes memory is untouched). */
+    fun forget(id: String) {
+        memos.remove(id)
+        _state.update { it.copy(recent = memos.all()) }
     }
 
     fun consumeMessage() = _state.update { it.copy(message = null) }
@@ -76,7 +93,7 @@ class NotesViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             val client = container.hermesClientOrNull()
                 ?: error("Hermes is not configured — Connect screen should gate this.")
-            return NotesViewModel(client) as T
+            return NotesViewModel(client, container.memoStore) as T
         }
     }
 }

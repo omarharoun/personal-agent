@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.StickyNote2
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -24,13 +26,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private val memoFmt = SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault())
 
 /**
- * Quick-capture notes → stored in the user's Hermes **memory** (server-side).
- * The app doesn't keep a second copy of note content; anything you save here your
- * agent can recall later in chat ("what notes have I saved about X?").
+ * Quick-capture memos → stored in the user's Hermes **memory** (server-side), so
+ * the agent can recall them in chat. A local index mirrors them here so recent
+ * memos stay visible; clearing one removes only the local copy, not the agent's.
  */
 @Composable
 fun NotesScreen(vm: NotesViewModel) {
@@ -47,7 +55,7 @@ fun NotesScreen(vm: NotesViewModel) {
         OutlinedTextField(
             value = draft,
             onValueChange = { draft = it },
-            label = { Text("New note") },
+            label = { Text("New memo") },
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             minLines = 2,
         )
@@ -65,15 +73,15 @@ fun NotesScreen(vm: NotesViewModel) {
             }
         }
 
-        if (state.sessionCaptures.isNotEmpty()) {
+        if (state.recent.isNotEmpty()) {
             Text(
-                "Saved this session",
+                "Recent memos",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
             )
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(state.sessionCaptures) { note ->
+                items(state.recent, key = { it.id }) { memo ->
                     Card(Modifier.fillMaxWidth()) {
                         Row(
                             Modifier.fillMaxWidth().padding(12.dp),
@@ -81,11 +89,26 @@ fun NotesScreen(vm: NotesViewModel) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                Icons.Filled.CheckCircle,
+                                Icons.Filled.StickyNote2,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                             )
-                            Text(note, style = MaterialTheme.typography.bodyMedium)
+                            Column(Modifier.weight(1f)) {
+                                Text(memo.text, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    memoFmt.format(Date(memo.savedAt)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 2.dp),
+                                )
+                            }
+                            IconButton(onClick = { vm.forget(memo.id) }) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "Remove from this list",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
