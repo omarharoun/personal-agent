@@ -50,6 +50,11 @@ object ContactIntents {
         context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         true
     } catch (_: ActivityNotFoundException) {
+        // No app can handle it — the caller shows a gentle fallback.
+        false
+    } catch (_: Throwable) {
+        // Any other failure (e.g. a SecurityException from an OEM dialer, a
+        // malformed URI) must NOT crash the crisis path — degrade to the fallback.
         false
     }
 }

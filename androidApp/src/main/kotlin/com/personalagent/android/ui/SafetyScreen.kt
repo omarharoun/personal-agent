@@ -112,14 +112,29 @@ fun SupportResourcesScreen(
 
     val support = state.support
     if (support != null) {
-        SupportResponseCard(
+        // This screen owns the ONLY scroll; the body carries none of its own, so
+        // two scrollables can never nest (that nesting was the crash).
+        SupportResourcesBody(
             response = support,
             contacts = state.contacts,
-            onDismiss = onClose,
+            onClose = onClose,
             onContactMissingApp = {
                 vm.showMessage("This device doesn't have an app to do that.")
             },
-            modifier = Modifier.fillMaxSize().padding(vertical = 12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 12.dp),
+        )
+    } else {
+        // Defensive: showSupport() always populates this, but never render blank —
+        // always keep a caring line + emergency guidance on screen.
+        Text(
+            "If you're in immediate danger, contact your local emergency services. " +
+                "You don't have to go through this alone.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(vertical = 12.dp),
         )
     }
 }

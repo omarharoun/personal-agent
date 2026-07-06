@@ -9,6 +9,7 @@ import com.personalagent.shared.model.Ids
 import com.personalagent.shared.safety.CrisisAssessment
 import com.personalagent.shared.safety.CrisisLevel
 import com.personalagent.shared.safety.CrisisRecognizer
+import com.personalagent.shared.safety.CrisisResource
 import com.personalagent.shared.safety.CrisisResponder
 import com.personalagent.shared.safety.CrisisResponse
 import com.personalagent.shared.safety.TrustedContact
@@ -103,11 +104,16 @@ class SafetyViewModel(
     fun showSupport() = _state.update {
         // Explicit, user-initiated request → a POSSIBLE_DISTRESS assessment so the
         // responder returns the supportive surface. No recognition of live text.
-        val assessment = CrisisAssessment(
-            level = CrisisLevel.POSSIBLE_DISTRESS,
-            rationale = "User explicitly opened the support surface.",
-        )
-        it.copy(support = responder.respond(assessment, regionHint = null))
+        // Wrapped defensively: the support path must NEVER throw or come back empty
+        // — if anything goes wrong we still show a safe, caring fallback.
+        val built = runCatching {
+            val assessment = CrisisAssessment(
+                level = CrisisLevel.POSSIBLE_DISTRESS,
+                rationale = "User explicitly opened the support surface.",
+            )
+            responder.respond(assessment, regionHint = null)
+        }.getOrNull()
+        it.copy(support = built ?: SAFE_FALLBACK_SUPPORT)
     }
 
     fun dismissSupport() = _state.update { it.copy(support = null) }
@@ -121,6 +127,32 @@ class SafetyViewModel(
      */
     fun onObservedText(text: String) {
         if (recognizer.assess(text).level == CrisisLevel.POSSIBLE_DISTRESS) showSupport()
+    }
+
+    private companion object {
+        /**
+         * 🔒 Last-resort support content if the responder ever fails to produce one.
+         * Generic + honest (placeholder resources, pending crisis-expert review) so
+         * the Support screen is never blank and never crashes.
+         */
+        val SAFE_FALLBACK_SUPPORT = CrisisResponse(
+            message = "You don't have to go through this alone. If you can, reaching out " +
+                "to someone you trust can really help right now.",
+            resources = listOf(
+                CrisisResource(
+                    name = "Your local emergency number",
+                    contact = "If you're in immediate danger, contact your local emergency services.",
+                    note = "PLACEHOLDER — verify + localize before real users.",
+                ),
+                CrisisResource(
+                    name = "A crisis / suicide-prevention helpline in your region",
+                    contact = "Look up the official helpline for your country/region " +
+                        "(e.g. findahelpline.com).",
+                    note = "PLACEHOLDER — verify + localize before real users.",
+                ),
+            ),
+            offerToHelpContact = true,
+        )
     }
 
     /** Factory so Compose can build this VM from the app container. */

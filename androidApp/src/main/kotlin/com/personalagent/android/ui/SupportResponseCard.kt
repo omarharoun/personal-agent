@@ -54,64 +54,90 @@ fun SupportResponseCard(
     onContactMissingApp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
         ),
     ) {
-        Column(
+        // The card OWNS the only scroll here. The body must never add its own
+        // scroll — nesting two same-direction scrolls measures the inner one with
+        // an infinite max-height constraint and throws at layout time (this was the
+        // "Find support" crash). See [SupportResourcesBody].
+        SupportResourcesBody(
+            response = response,
+            contacts = contacts,
+            onClose = onDismiss,
+            onContactMissingApp = onContactMissingApp,
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),
-        ) {
-            Text(
-                text = REVIEW_NOTICE,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-            Spacer(Modifier.height(16.dp))
+        )
+    }
+}
 
-            Text(
-                text = response.message,
-                style = MaterialTheme.typography.bodyLarge,
-            )
+/**
+ * The supportive content itself — with **no scroll of its own**. The CALLER
+ * provides the scroll (via [modifier]) so this can be dropped into either the
+ * chat [SupportResponseCard] or the full-screen Support Resources view without
+ * ever nesting two scrollables (the crash). Everything here is pure rendering; it
+ * cannot throw. Outward taps only open the dialer/SMS composer, guarded so a
+ * device with no handler shows a gentle fallback instead of crashing.
+ */
+@Composable
+fun SupportResourcesBody(
+    response: CrisisResponse,
+    contacts: List<TrustedContact>,
+    onClose: () -> Unit,
+    onContactMissingApp: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    Column(modifier = modifier) {
+        Text(
+            text = REVIEW_NOTICE,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(16.dp))
 
-            // --- Crisis resources (placeholder, verify/localize before real users) ---
-            Spacer(Modifier.height(20.dp))
-            Text("Ways to get support", style = MaterialTheme.typography.titleMedium)
+        Text(
+            text = response.message,
+            style = MaterialTheme.typography.bodyLarge,
+        )
+
+        // --- Crisis resources (placeholder, verify/localize before real users) ---
+        Spacer(Modifier.height(20.dp))
+        Text("Ways to get support", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        response.resources.forEach { resource ->
+            CrisisResourceRow(resource)
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // --- Trusted contacts (user-initiated reach-out, only if offered) ---
+        if (response.offerToHelpContact && contacts.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            response.resources.forEach { resource ->
-                CrisisResourceRow(resource)
-                Spacer(Modifier.height(12.dp))
-            }
-
-            // --- Trusted contacts (user-initiated reach-out, only if offered) ---
-            if (response.offerToHelpContact && contacts.isNotEmpty()) {
+            Text("People you trust", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            contacts.forEach { contact ->
+                TrustedContactRow(
+                    contact = contact,
+                    onCall = { if (!ContactIntents.openDialer(context, it)) onContactMissingApp() },
+                    onText = { phone ->
+                        val firstName = contact.name.substringBefore(' ')
+                        val body = "Hi $firstName, I'm having a really hard time and " +
+                            "could use someone to talk to."
+                        if (!ContactIntents.openSms(context, phone, body)) onContactMissingApp()
+                    },
+                )
                 Spacer(Modifier.height(8.dp))
-                Text("People you trust", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                contacts.forEach { contact ->
-                    TrustedContactRow(
-                        contact = contact,
-                        onCall = { if (!ContactIntents.openDialer(context, it)) onContactMissingApp() },
-                        onText = { phone ->
-                            val firstName = contact.name.substringBefore(' ')
-                            val body = "Hi $firstName, I'm having a really hard time and " +
-                                "could use someone to talk to."
-                            if (!ContactIntents.openSms(context, phone, body)) onContactMissingApp()
-                        },
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
             }
+        }
 
-            Spacer(Modifier.height(4.dp))
-            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text("Close")
-            }
+        Spacer(Modifier.height(4.dp))
+        TextButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
+            Text("Close")
         }
     }
 }
