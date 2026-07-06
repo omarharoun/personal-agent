@@ -82,7 +82,15 @@ subtle spinner in the card header signals a background revalidate; the full
 "Loading…" appears only on the first-ever fetch (empty cache). This stops the
 Goals card from re-querying the agent on every home appearance.
 
-## Framework choice & why
+**Chat composer.** The chat input is a floating, softly-shadowed rounded pill
+(messenger-style) that docks flush above the keyboard (edge-to-edge insets),
+grows to a few lines, and has a clear circular send button.
+
+**🔒 Support.** "Find support" on the Support screen opens a dedicated Support
+Resources view (`SupportResourcesScreen`) with gentle guidance, real crisis
+resources, and — if the user has added them — their trusted people (to *help
+them* reach out; never autonomous). The resource list is still a placeholder
+pending crisis-expert verification/localization (`// REVIEW REQUIRED`).
 
 **Kotlin Multiplatform, continuing this repo.** This codebase was already a
 working KMP app (Ktor HTTP client, Compose chat UI with streaming, hardware-

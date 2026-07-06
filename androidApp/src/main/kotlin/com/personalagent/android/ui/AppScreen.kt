@@ -51,6 +51,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -93,7 +94,7 @@ import com.personalagent.shared.cloud.CloudProvider
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
-private enum class Surface { DASHBOARD, CONVERSATION, SETTINGS, SUPPORT, NOTES, REMINDERS, GOALS, REFLECTION, TASKS, RUN_TASK, SKILLS }
+private enum class Surface { DASHBOARD, CONVERSATION, SETTINGS, SUPPORT, SUPPORT_RESOURCES, NOTES, REMINDERS, GOALS, REFLECTION, TASKS, RUN_TASK, SKILLS }
 
 /**
  * The app shell — an Open-WebUI-style chat surface: a slide-out navigation drawer
@@ -202,7 +203,18 @@ fun AppScreen(
                 SettingsScreen(container, themeMode, onThemeModeChange, onDisconnect = onDisconnect)
             }
             Surface.SUPPORT -> SubScreen("Support", { backHome() }, snackbar) {
-                SafetyScreen(safetyVm, snackbar)
+                SafetyScreen(safetyVm, snackbar, onFindSupport = { surface = Surface.SUPPORT_RESOURCES })
+            }
+            Surface.SUPPORT_RESOURCES -> SubScreen(
+                "Support resources",
+                { safetyVm.dismissSupport(); surface = Surface.SUPPORT },
+                snackbar,
+            ) {
+                SupportResourcesScreen(
+                    safetyVm,
+                    snackbar,
+                    onClose = { safetyVm.dismissSupport(); surface = Surface.SUPPORT },
+                )
             }
             Surface.NOTES -> SubScreen("Memos", { backHome() }, snackbar) {
                 NotesScreen(notesVm)
@@ -575,6 +587,11 @@ private fun TypingIndicator() {
 }
 
 // --- Composer ----------------------------------------------------------------
+/**
+ * A polished, FLOATING messenger-style composer: a rounded, softly-shadowed pill
+ * that sits over the page and docks flush above the keyboard. It grows to a few
+ * lines, keeps a legible placeholder, and has a clear circular send button.
+ */
 @Composable
 private fun Composer(
     draft: String,
@@ -582,57 +599,65 @@ private fun Composer(
     sending: Boolean,
     onSend: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.background) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                // Sit flush above the keyboard when it's open, and above the nav bar
-                // when it's closed — the UNION (max per side) of the IME and
-                // navigation-bar insets, NOT their sum. Summing them (the old bug:
-                // navigationBarsPadding() + imePadding()) double-counted the nav-bar
-                // height on top of the keyboard, leaving a black gap above the IME.
-                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+    // Transparent backdrop so the pill visibly floats over the page background.
+    Box(
+        Modifier
+            .fillMaxWidth()
+            // Sit flush above the keyboard when it's open, and above the nav bar
+            // when it's closed — the UNION (max per side) of the IME and
+            // navigation-bar insets, applied exactly ONCE (never summed, which was
+            // the old double-count that left a gap above the IME).
+            .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+            .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 12.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+            // Soft floating shadow — the "elevated pill" look.
+            shadowElevation = 10.dp,
+            tonalElevation = 2.dp,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Surface(
-                shape = RoundedCornerShape(26.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                tonalElevation = 2.dp,
-                modifier = Modifier.fillMaxWidth(),
+            Row(
+                Modifier.padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                // Anchor the send button to the bottom as the field grows multiline.
+                verticalAlignment = Alignment.Bottom,
             ) {
-                Row(
-                    Modifier.padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.weight(1f).padding(vertical = 8.dp)) {
-                        if (draft.isEmpty()) {
-                            Text(
-                                "Message your Life Agent…",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        BasicTextField(
-                            value = draft,
-                            onValueChange = onDraftChange,
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                color = MaterialTheme.colorScheme.onSurface,
-                            ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
-                            maxLines = 6,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { if (draft.isNotBlank()) onSend() }),
-                            modifier = Modifier.fillMaxWidth(),
+                Box(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                    if (draft.isEmpty()) {
+                        Text(
+                            "Message your Life Agent…",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Spacer(Modifier.size(6.dp))
-                    FilledIconButton(
-                        onClick = onSend,
-                        enabled = draft.isNotBlank() && !sending,
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
-                    }
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = onDraftChange,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        maxLines = 6,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { if (draft.isNotBlank()) onSend() }),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Spacer(Modifier.size(8.dp))
+                FilledIconButton(
+                    onClick = onSend,
+                    enabled = draft.isNotBlank() && !sending,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                    modifier = Modifier.size(44.dp),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                 }
             }
         }
