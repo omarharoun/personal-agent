@@ -28,8 +28,8 @@ android {
         applicationId = "com.personalagent.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 11
-        versionName = "2.1.0"
+        versionCode = 12
+        versionName = "2.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // No native libraries: Hermes is the brain (server-side), so the app ships
         // no on-device ML runtime — it's a thin, arch-agnostic client.

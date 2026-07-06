@@ -3,4 +3,7 @@
     <!-- Hermes-teal window background (the app is dark-by-default). Compose paints
          its own background over this; this just avoids a light launch flash. -->
     <color name="pa_window_background">#041C1C</color>
+    <!-- Base declaration so the night-qualified override has a default (avoids the
+         MissingDefaultResource lint error / config-mismatch crashes). -->
+    <color name="pa_window_background_dark">#041C1C</color>
 </resources>

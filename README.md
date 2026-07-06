@@ -33,6 +33,45 @@ connection config (URL, key) and a memory-scope key, sealed on-device.
 > [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) and the per-phase notes in
 > [`docs/PHASE0.md`](docs/PHASE0.md), [`docs/PHASE1.md`](docs/PHASE1.md).
 
+## What's new in v2.2.0
+
+UX pass on the chat surface plus the first iOS CI build:
+
+- **Floating composer** — the input pill floats over the transcript (no opaque
+  band under it); messages scroll behind it, messenger-style.
+- **Attachment dock (`+`)** — a left `+` with three options (Camera / Photo /
+  File). Tap to open, or **press-and-hold and slide up** to a macOS-Dock-style
+  stack that magnifies toward your finger; release on an option to pick it.
+- **Hold-to-talk voice** — with an empty field, hold the mic to record; release
+  to send, slide away to cancel. Transcription is done **on-device** by the
+  system speech recognizer — no audio leaves the phone; only the text is sent.
+- **Select & copy** — chat text is selectable/copyable; every assistant reply has
+  **Copy** / **Save** (share-sheet) so any document it writes can leave the app.
+- **History multi-select** — a **Select** mode with a red **Delete** to remove
+  several conversations at once (long-press a row to start selecting).
+- **Scheduling that delivers in-app** — when you ask the agent to schedule/
+  automate something, the client injects a *system* steer so it uses **local,
+  in-app delivery** and never `send()`/push/email/external channels (the fix for
+  the "scheduled task never arrived" failure). Jobs the app creates are already
+  `deliver=local`. *Note: fully surfacing a recurring task's generated output
+  in-app depends on the live Hermes `/api/jobs` run-output shape and still wants
+  a live-instance check per Phase 0.*
+- **Cleaner Knowledge Map** — the extraction prompt now demands concrete
+  real-world subjects and filters vague/meta labels ("Memory Test",
+  "Self-Knowledge", "Admit Uncertainty", …).
+- **Settings** — removed the "First name" field (the agent recalls your name from
+  memory instead).
+
+### iOS build via GitHub Actions (manual)
+
+`.github/workflows/ios-build.yml` builds an **unsigned `.ipa`** so you can
+sideload onto your own iPhone with a **free Apple ID** (AltStore / Sideloadly
+re-sign it) — no paid Apple Developer account, no signing secrets in CI. It is
+**manual-only** (`workflow_dispatch`), never on push. Run it from the **Actions**
+tab → *iOS build (unsigned IPA)* → *Run workflow*, or `gh workflow run
+"iOS build (unsigned IPA)"`, then download the `hermes-life-agent-unsigned-ipa`
+artifact.
+
 ## Design
 
 The UI adopts the **Hermes Agent web dashboard's "Hermes Teal" look** so the Life
