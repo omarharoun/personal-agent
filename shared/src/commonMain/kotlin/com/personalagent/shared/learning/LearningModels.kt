@@ -83,6 +83,13 @@ data class LearningState(
 )
 
 /**
+ * The single most relevant "pick up where you left off" item across active goals
+ * — used to weave a quiet learning touch into the Goals + Reflection surfaces
+ * (Step 4). Null when there's nothing in progress (quiet-if-ignored).
+ */
+data class LearningFocus(val goal: LearningGoal, val resource: LearningResource)
+
+/**
  * Shared display + memory wording for statuses, so Android and iOS use identical
  * copy (and the "one-tap status" set is defined in exactly one place).
  */

@@ -47,15 +47,26 @@ struct GoalsView: View {
     @Environment(\.theme) private var theme
     @State private var category = "Health"
     @State private var draft = ""
+    private let onOpenLearning: () -> Void
 
     private let categories = ["Health", "Relationships", "Learning", "Habits", "Work", "Other"]
-    init(env: AppEnvironment) { _model = StateObject(wrappedValue: GoalsModel(env: env)) }
+    init(env: AppEnvironment, onOpenLearning: @escaping () -> Void = {}) {
+        _model = StateObject(wrappedValue: GoalsModel(env: env))
+        self.onOpenLearning = onOpenLearning
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Set what “better” looks like for you. Your agent remembers your goals and supports you with them over time.")
                     .font(.callout).foregroundColor(theme.onSurfaceVariant)
+
+                // Step 4 — weave: learning is a kind of goal, so link to the Learning
+                // guide from here rather than building a parallel surface.
+                Button { onOpenLearning() } label: {
+                    Text("Learning something? Open the Learning guide →").font(.footnote)
+                        .foregroundColor(theme.primary)
+                }
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {

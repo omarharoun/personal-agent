@@ -34,6 +34,7 @@ import com.personalagent.shared.knowledge.KnowledgeGraph
 import com.personalagent.shared.knowledge.KnowledgeGraphService
 import com.personalagent.shared.knowledge.KnowledgeGraphStore
 import com.personalagent.shared.hermes.LearningPrompts
+import com.personalagent.shared.hermes.LifePrompts
 import com.personalagent.shared.learning.LearningAdaptation
 import com.personalagent.shared.learning.LearningGoal
 import com.personalagent.shared.learning.LearningKind
@@ -178,6 +179,16 @@ object LifeAgentIos {
     /** Prompt that syncs a status change to Hermes memory as the current focus. */
     fun recordStatusPrompt(goal: LearningGoal, resource: LearningResource, status: LearningStatus): String =
         LearningPrompts.recordStatus(goal, resource.title, LearningStatusText.memoryPhrase(status))
+
+    /**
+     * Step 4 — the Phase-4 reflection prompt with a quiet learning touch woven in
+     * ONLY when something is in progress (else identical to before).
+     */
+    fun reflectionPromptWithLearning(reflectionStore: ReflectionStore, learningStore: LearningStore): String {
+        val base = LifePrompts.reflection(reflectionStore.load().cadence.promptWord)
+        val focus = learningStore.currentFocus() ?: return base
+        return base + LearningPrompts.reflectionLearningAddon(focus.goal.topic, focus.resource.title)
+    }
 
     /** 🔒 Crisis (Gate 2) — consent-first; contacts NO ONE automatically. */
     fun trustedContactsStore(crypto: SecretKeyProvider): TrustedContactsStore =

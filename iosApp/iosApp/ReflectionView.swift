@@ -29,8 +29,9 @@ final class ReflectionModel: ObservableObject {
         loading = true
         _Concurrency.Task {
             let ios = LifeAgentIos.shared
-            let word = ios.reflectionPromptWord(store: env.reflectionStore)
-            let msg = ios.wireMessage(role: "user", content: LifePrompts.shared.reflection(cadence: word))
+            // Step 4 — reflection with a quiet learning touch woven in when in progress.
+            let content = ios.reflectionPromptWithLearning(reflectionStore: env.reflectionStore, learningStore: env.learningStore)
+            let msg = ios.wireMessage(role: "user", content: content)
             do {
                 let out = try await client.complete(messages: [msg], sessionId: "lifeagent-reflection")
                 reflection = out

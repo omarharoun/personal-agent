@@ -275,7 +275,9 @@ fun AppScreen(
                 RemindersScreen(remindersVm)
             }
             Surface.GOALS -> SubScreen("Goals", { backHome() }, snackbar) {
-                GoalsScreen(goalsVm)
+                GoalsScreen(goalsVm, onOpenLearning = {
+                    learningVm.reload(); learningVm.checkWebAvailability(); surface = Surface.LEARNING
+                })
             }
             Surface.LEARNING -> SubScreen("Learning", { backHome() }, snackbar) {
                 // 🔒 REVIEW REQUIRED — web-derived links open ONLY in the system

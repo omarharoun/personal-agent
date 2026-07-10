@@ -69,7 +69,7 @@ struct AppShell: View {
         case .reminders:
             sub("Reminders") { RemindersView(env: env) }
         case .goals:
-            sub("Goals") { GoalsView(env: env) }
+            sub("Goals") { GoalsView(env: env, onOpenLearning: { surface = .learning }) }
         case .learning:
             sub("Learning") { LearningView(env: env) }
         case .reflection:

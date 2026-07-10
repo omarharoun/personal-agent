@@ -118,4 +118,16 @@ object LearningPrompts {
         "Quick memory update on my learning: for \"${goal.topic.trim()}\", I $statusPhrase " +
             "\"${resourceTitle.trim()}\". Please remember this so your future suggestions fit. " +
             "Reply with a short, warm one-line acknowledgement — do not search the web."
+
+    /**
+     * Step 4 — a gentle, no-pressure learning touch appended to the Phase-4
+     * reflection prompt ONLY when there's something in progress. Weaves learning
+     * into the existing reflection surface instead of nagging on its own; the
+     * agent is told it's an invitation and fine to skip.
+     */
+    fun reflectionLearningAddon(topic: String, resourceTitle: String): String =
+        " If — and only if — it fits naturally, you may add one light, no-pressure touch about my " +
+            "learning: I've been working on \"${topic.trim()}\" and my current resource is " +
+            "\"${resourceTitle.trim()}\". Make it a warm invitation, never a quiz or a chore, and " +
+            "it's completely fine to leave it out."
 }

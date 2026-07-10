@@ -9,9 +9,11 @@ import com.personalagent.android.notification.ReflectionScheduling
 import com.personalagent.shared.hermes.HermesClient
 import com.personalagent.shared.hermes.HermesException
 import com.personalagent.shared.hermes.HermesWireMessage
+import com.personalagent.shared.hermes.LearningPrompts
 import com.personalagent.shared.hermes.LifePrompts
 import com.personalagent.shared.hermes.ReflectionCadence
 import com.personalagent.shared.hermes.ReflectionStore
+import com.personalagent.shared.learning.LearningStore
 import com.personalagent.shared.util.SystemClock
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +32,7 @@ import kotlinx.coroutines.withTimeout
 class ReflectionViewModel(
     private val hermes: HermesClient,
     private val store: ReflectionStore,
+    private val learningStore: LearningStore,
     private val appContext: Context,
 ) : ViewModel() {
 
@@ -61,9 +64,14 @@ class ReflectionViewModel(
         viewModelScope.launch {
             try {
                 // Hard timeout so the button can NEVER stick on "Reflecting…".
+                // Step 4 — weave a quiet learning touch into the reflection ONLY
+                // when something is in progress (quiet-if-ignored).
+                val focus = learningStore.currentFocus()
+                val prompt = LifePrompts.reflection(cadence.promptWord) +
+                    (focus?.let { LearningPrompts.reflectionLearningAddon(it.goal.topic, it.resource.title) } ?: "")
                 val text = withTimeout(90_000) {
                     hermes.complete(
-                        listOf(HermesWireMessage("user", LifePrompts.reflection(cadence.promptWord))),
+                        listOf(HermesWireMessage("user", prompt)),
                         sessionId = "lifeagent-reflection",
                     )
                 }
@@ -101,7 +109,7 @@ class ReflectionViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             val client = container.hermesClientOrNull()
                 ?: error("Hermes is not configured — Connect screen should gate this.")
-            return ReflectionViewModel(client, container.reflectionStore, container.androidContext) as T
+            return ReflectionViewModel(client, container.reflectionStore, container.learningStore, container.androidContext) as T
         }
     }
 }

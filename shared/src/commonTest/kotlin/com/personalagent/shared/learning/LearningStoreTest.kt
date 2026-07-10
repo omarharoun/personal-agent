@@ -79,6 +79,23 @@ class LearningStoreTest {
     }
 
     @Test
+    fun current_focus_prefers_started_then_recommended_and_is_quiet_when_empty() {
+        val storage = InMemoryKeyValueStorage()
+        val store = LearningStore(storage).apply { addGoal(goal()) }
+        assertTrue(store.currentFocus() == null) // nothing in progress → quiet
+        store.addRecommendations("g1", listOf(res("r1", "https://x.org/1"), res("r2", "https://x.org/2")))
+        // With only RECOMMENDED, focus is the most recent recommendation.
+        assertTrue(store.currentFocus() != null)
+        // A STARTED resource wins over RECOMMENDED ones.
+        store.setStatus("r1", LearningStatus.STARTED, nowMillis = 900L)
+        assertEquals("r1", store.currentFocus()!!.resource.id)
+        // Finishing everything makes it quiet again.
+        store.setStatus("r1", LearningStatus.FINISHED, nowMillis = 1000L)
+        store.setStatus("r2", LearningStatus.ABANDONED, nowMillis = 1000L)
+        assertTrue(store.currentFocus() == null)
+    }
+
+    @Test
     fun save_learning_goal_prompt_is_compact_and_no_web() {
         val p = LearningPrompts.saveLearningGoal(goal())
         assertTrue(p.contains("Rust"))

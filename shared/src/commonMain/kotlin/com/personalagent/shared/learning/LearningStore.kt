@@ -91,6 +91,23 @@ class LearningStore(private val storage: KeyValueStorage) {
         save(s.copy(resources = s.resources.filterNot { it.id == resourceId }))
     }
 
+    /**
+     * Step 4 — the single "pick up where you left off" item across ACTIVE goals:
+     * a STARTED resource (most recently touched) if any, else the most recent
+     * still-RECOMMENDED one. Null when nothing is in progress (so the weave into
+     * Goals/Reflection stays quiet). Finished/abandoned/loved/not-for-me are done.
+     */
+    fun currentFocus(): LearningFocus? {
+        val s = load()
+        val activeIds = s.goals.filter { it.active }.map { it.id }.toSet()
+        val candidates = s.resources.filter { it.goalId in activeIds }
+        val pick = candidates.filter { it.status == LearningStatus.STARTED }.maxByOrNull { it.updatedAt }
+            ?: candidates.filter { it.status == LearningStatus.RECOMMENDED }.maxByOrNull { it.recommendedAt }
+            ?: return null
+        val goal = s.goals.firstOrNull { it.id == pick.goalId } ?: return null
+        return LearningFocus(goal, pick)
+    }
+
     private companion object {
         const val KEY = "learning"
     }

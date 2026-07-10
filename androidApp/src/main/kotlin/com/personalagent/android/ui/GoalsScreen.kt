@@ -39,7 +39,7 @@ import com.personalagent.shared.hermes.LifePrompts
  * the brain and holds the memory.
  */
 @Composable
-fun GoalsScreen(vm: GoalsViewModel) {
+fun GoalsScreen(vm: GoalsViewModel, onOpenLearning: () -> Unit = {}) {
     val state by vm.state.collectAsStateWithLifecycle()
     var category by remember { mutableStateOf(LifePrompts.GOAL_CATEGORIES.first()) }
     var draft by remember { mutableStateOf("") }
@@ -55,6 +55,11 @@ fun GoalsScreen(vm: GoalsViewModel) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        // Step 4 — weave: trying to LEARN something is a kind of goal, so point to
+        // the Learning guide from here rather than building a parallel surface.
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onOpenLearning) { Text("Learning something? Open the Learning guide →") }
 
         Spacer(Modifier.height(12.dp))
         Row(
