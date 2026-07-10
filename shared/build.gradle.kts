@@ -22,10 +22,15 @@ kotlin {
     }
 
     // --- iOS targets: the framework is consumed by the SwiftUI app (macOS/Xcode). ---
+    // isStatic = true links Shared into the app's main executable instead of shipping
+    // a separate Shared.framework/Shared dylib under Frameworks/. A free-Apple-ID
+    // sideload (AltServer-Linux) re-signs the main executable but not nested dylibs,
+    // and iOS then refuses to spawn the app (posix_spawn EBADEXEC / errno 85). With no
+    // nested code to leave unsigned, the re-signed main binary launches cleanly.
     val xcfName = "Shared"
-    iosX64 { binaries.framework { baseName = xcfName } }
-    iosArm64 { binaries.framework { baseName = xcfName } }
-    iosSimulatorArm64 { binaries.framework { baseName = xcfName } }
+    iosX64 { binaries.framework { baseName = xcfName; isStatic = true } }
+    iosArm64 { binaries.framework { baseName = xcfName; isStatic = true } }
+    iosSimulatorArm64 { binaries.framework { baseName = xcfName; isStatic = true } }
 
     sourceSets {
         commonMain.dependencies {
