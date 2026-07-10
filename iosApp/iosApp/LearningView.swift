@@ -72,7 +72,7 @@ final class LearningModel: ObservableObject {
     func add(topic: String, why: String, level: String, style: String) {
         let t = topic.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, !saving else { return }
-        let goal = LifeAgentIos.shared.newLearningGoal(
+        let goal = LifeAgentIos.shared.makeLearningGoal(
             topic: t,
             why: why.isEmpty ? nil : why,
             level: level.isEmpty ? nil : level,

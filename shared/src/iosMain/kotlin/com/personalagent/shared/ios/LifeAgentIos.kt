@@ -130,8 +130,12 @@ object LifeAgentIos {
     /**
      * Build a [LearningGoal] with all fields explicit (Kotlin default args don't
      * cross the Swift bridge), stamping a fresh id + time.
+     *
+     * NOTE: named `make…` not `new…` — a `new`-prefixed function collides with the
+     * Objective-C "new" method family and K/N bridges it to Swift as
+     * `doNewLearningGoal`, which is surprising. `make…` bridges verbatim.
      */
-    fun newLearningGoal(topic: String, why: String?, level: String?, style: String?): LearningGoal {
+    fun makeLearningGoal(topic: String, why: String?, level: String?, style: String?): LearningGoal {
         val now = SystemClock.nowMillis()
         return LearningGoal(
             id = Ids.next(now),
