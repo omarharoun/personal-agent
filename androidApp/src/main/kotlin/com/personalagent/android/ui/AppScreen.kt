@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
@@ -137,7 +138,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Which surface is showing inside the drawer host. */
-private enum class Surface { DASHBOARD, CONVERSATION, HISTORY, KNOWLEDGE, SETTINGS, SUPPORT, SUPPORT_RESOURCES, NOTES, REMINDERS, GOALS, REFLECTION, TASKS, RUN_TASK, SKILLS }
+private enum class Surface { DASHBOARD, CONVERSATION, HISTORY, KNOWLEDGE, SETTINGS, SUPPORT, SUPPORT_RESOURCES, NOTES, REMINDERS, GOALS, LEARNING, REFLECTION, TASKS, RUN_TASK, SKILLS }
 
 /**
  * The app shell — an Open-WebUI-style chat surface: a slide-out navigation drawer
@@ -170,6 +171,8 @@ fun AppScreen(
         viewModel(factory = RemindersViewModel.Factory(container))
     val goalsVm: GoalsViewModel =
         viewModel(factory = GoalsViewModel.Factory(container))
+    val learningVm: LearningViewModel =
+        viewModel(factory = LearningViewModel.Factory(container))
     val reflectionVm: ReflectionViewModel =
         viewModel(factory = ReflectionViewModel.Factory(container))
     val dashboardVm: DashboardViewModel =
@@ -224,6 +227,7 @@ fun AppScreen(
                 onOpenTasks = { tasksVm.refresh(); surface = Surface.TASKS; closeDrawer() },
                 onOpenReminders = { remindersVm.refresh(); surface = Surface.REMINDERS; closeDrawer() },
                 onOpenGoals = { surface = Surface.GOALS; closeDrawer() },
+                onOpenLearning = { learningVm.reload(); learningVm.checkWebAvailability(); surface = Surface.LEARNING; closeDrawer() },
                 onOpenReflection = { surface = Surface.REFLECTION; closeDrawer() },
                 onOpenSkills = { surface = Surface.SKILLS; closeDrawer() },
                 onOpenSettings = { surface = Surface.SETTINGS; closeDrawer() },
@@ -272,6 +276,9 @@ fun AppScreen(
             Surface.GOALS -> SubScreen("Goals", { backHome() }, snackbar) {
                 GoalsScreen(goalsVm)
             }
+            Surface.LEARNING -> SubScreen("Learning", { backHome() }, snackbar) {
+                LearningScreen(learningVm)
+            }
             Surface.REFLECTION -> SubScreen("Reflection", { backHome() }, snackbar) {
                 ReflectionScreen(reflectionVm)
             }
@@ -318,6 +325,7 @@ private fun AppDrawer(
     onOpenTasks: () -> Unit,
     onOpenReminders: () -> Unit,
     onOpenGoals: () -> Unit,
+    onOpenLearning: () -> Unit,
     onOpenReflection: () -> Unit,
     onOpenSkills: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -404,6 +412,12 @@ private fun AppDrawer(
                 label = { Text("Goals") },
                 selected = currentSurface == Surface.GOALS,
                 onClick = onOpenGoals,
+            )
+            NavigationDrawerItem(
+                icon = { Icon(Icons.Filled.School, null) },
+                label = { Text("Learning") },
+                selected = currentSurface == Surface.LEARNING,
+                onClick = onOpenLearning,
             )
             NavigationDrawerItem(
                 icon = { Icon(Icons.Filled.CheckCircle, null) },

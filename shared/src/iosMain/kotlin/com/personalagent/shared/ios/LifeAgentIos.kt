@@ -33,6 +33,9 @@ import com.personalagent.shared.home.HomeCacheStore
 import com.personalagent.shared.knowledge.KnowledgeGraph
 import com.personalagent.shared.knowledge.KnowledgeGraphService
 import com.personalagent.shared.knowledge.KnowledgeGraphStore
+import com.personalagent.shared.learning.LearningGoal
+import com.personalagent.shared.learning.LearningStore
+import com.personalagent.shared.model.Ids
 import com.personalagent.shared.notes.MemoStore
 import com.personalagent.shared.profile.ProfileStore
 import com.personalagent.shared.safety.CrisisAssessment
@@ -109,6 +112,28 @@ object LifeAgentIos {
 
     fun knowledgeGraphService(chat: ChatStore, kg: KnowledgeGraphStore): KnowledgeGraphService =
         KnowledgeGraphService(chat, kg)
+
+    // --- Phase 6: Learning Guide ---------------------------------------------
+
+    /** AUTHORITATIVE local store of learning goals + resources (sealed at rest). */
+    fun learningStore(crypto: SecretKeyProvider): LearningStore =
+        LearningStore(enc(crypto, "learning"))
+
+    /**
+     * Build a [LearningGoal] with all fields explicit (Kotlin default args don't
+     * cross the Swift bridge), stamping a fresh id + time.
+     */
+    fun newLearningGoal(topic: String, why: String?, level: String?, style: String?): LearningGoal {
+        val now = SystemClock.nowMillis()
+        return LearningGoal(
+            id = Ids.next(now),
+            topic = topic,
+            why = why?.ifBlank { null },
+            level = level?.ifBlank { null },
+            style = style?.ifBlank { null },
+            createdAt = now,
+        )
+    }
 
     /** 🔒 Crisis (Gate 2) — consent-first; contacts NO ONE automatically. */
     fun trustedContactsStore(crypto: SecretKeyProvider): TrustedContactsStore =

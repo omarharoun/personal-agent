@@ -29,6 +29,9 @@ final class AppEnvironment: ObservableObject {
     let knowledgeStore: KnowledgeGraphStore
     let knowledgeService: KnowledgeGraphService
 
+    // Phase 6 — authoritative local store of learning goals + resources.
+    let learningStore: LearningStore
+
     // 🔒 Crisis safety (consent-first; contacts NO ONE automatically).
     let trustedContacts: TrustedContactsStore
     let crisisRecognizer: KeywordCrisisRecognizer
@@ -61,6 +64,7 @@ final class AppEnvironment: ObservableObject {
         let knowledgeStore = ios.knowledgeGraphStore(crypto: crypto)
         self.knowledgeStore = knowledgeStore
         self.knowledgeService = ios.knowledgeGraphService(chat: chatStore, kg: knowledgeStore)
+        self.learningStore = ios.learningStore(crypto: crypto)
         self.trustedContacts = ios.trustedContactsStore(crypto: crypto)
         self.crisisRecognizer = ios.crisisRecognizer()
         self.crisisResponder = ios.crisisResponder()

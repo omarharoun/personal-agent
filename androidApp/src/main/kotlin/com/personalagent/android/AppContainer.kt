@@ -19,6 +19,7 @@ import com.personalagent.shared.chat.ChatStore
 import com.personalagent.shared.home.HomeCacheStore
 import com.personalagent.shared.knowledge.KnowledgeGraphService
 import com.personalagent.shared.knowledge.KnowledgeGraphStore
+import com.personalagent.shared.learning.LearningStore
 import com.personalagent.shared.notes.MemoStore
 import com.personalagent.shared.profile.ProfileStore
 import com.personalagent.shared.reminder.ReminderService
@@ -100,6 +101,14 @@ class AppContainer(context: Context) {
     /** Builds + caches the chat-derived knowledge graph (model path + offline fallback). */
     val knowledgeGraphService: KnowledgeGraphService =
         KnowledgeGraphService(chatStore, knowledgeGraphStore)
+
+    /**
+     * Phase 6 — AUTHORITATIVE, device-local record of learning goals + the
+     * recommended/started/finished/abandoned resources for each. Hermes memory
+     * holds only the current focus (memory is global + char-limited; see
+     * [com.personalagent.shared.hermes.LearningPrompts]). Sealed at rest.
+     */
+    val learningStore: LearningStore = LearningStore(encrypted("learning"))
 
     // --- Hermes connection ----------------------------------------------------
 

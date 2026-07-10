@@ -8,7 +8,7 @@ import Shared
 
 enum Surface: Hashable {
     case dashboard, conversation, history, knowledge, settings, support
-    case notes, reminders, goals, reflection, tasks, runTask, skills
+    case notes, reminders, goals, learning, reflection, tasks, runTask, skills
 }
 
 struct AppShell: View {
@@ -70,6 +70,8 @@ struct AppShell: View {
             sub("Reminders") { RemindersView(env: env) }
         case .goals:
             sub("Goals") { GoalsView(env: env) }
+        case .learning:
+            sub("Learning") { LearningView(env: env) }
         case .reflection:
             sub("Reflection") { ReflectionView(env: env) }
         case .settings:
@@ -93,6 +95,7 @@ struct AppShell: View {
         case .notes: return "Memos"
         case .reminders: return "Reminders"
         case .goals: return "Goals"
+        case .learning: return "Learning"
         case .reflection: return "Reflection"
         case .tasks: return "Tasks"
         case .runTask: return "Run a task"
@@ -152,6 +155,7 @@ struct AppShell: View {
                     drawerItem(icon: "clock.arrow.circlepath", label: "History") { go(.history) }
                     drawerItem(icon: "point.3.connected.trianglepath.dotted", label: "Knowledge") { go(.knowledge) }
                     drawerItem(icon: "flag", label: "Goals") { go(.goals) }
+                    drawerItem(icon: "graduationcap", label: "Learning") { go(.learning) }
                     drawerItem(icon: "checkmark.circle", label: "Tasks") { go(.tasks) }
                     drawerItem(icon: "note.text", label: "Memos") { go(.notes) }
                     drawerItem(icon: "bell", label: "Reminders") { go(.reminders) }
