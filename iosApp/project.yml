@@ -34,6 +34,16 @@ targets:
       - path: iosApp/HermesLifeAgentView.swift
     info:
       path: iosApp/Info.plist
+      # XcodeGen GENERATES this plist from the keys below — a hand-edited
+      # Info.plist at this path is overwritten on `xcodegen generate`. So the
+      # app version and these UI keys must live here, not in the .plist file.
+      properties:
+        CFBundleShortVersionString: "2.4.0"   # match the Android release train
+        CFBundleVersion: "240"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.personalagent.ios
