@@ -73,12 +73,16 @@ final class IosSecretKeyStore: IosNativeKeyStore {
     /// Idempotently create the device key if absent. Contract path used by
     /// `EncryptedKeyValueStorage`; does NOT surface a recovery code (the setup
     /// screen does that via `setUp()` before the store is first used).
-    func ensureKey() throws {
+    ///
+    /// NOTE: Kotlin/Native renames the bridged `ensureKey()` requirement to
+    /// `ensureKey_()` (an ObjC selector-disambiguation), so the protocol
+    /// conformance must use that name. Swift callers go through `ensureKey()` below.
+    func ensureKey_() throws {
         if hasKey() { return }
         _ = try generateAndStoreDataKey()
     }
 
-    func encrypt(plaintext: KotlinByteArray, aad: KotlinByteArray) throws -> KotlinByteArray {
+    func encrypt(plaintext: KotlinByteArray, aad_ aad: KotlinByteArray) throws -> KotlinByteArray {
         let key = try dataKey()
         let sealed = try AES.GCM.seal(plaintext.toData(), using: key, authenticating: aad.toData())
         // `.combined` is `nonce(12) ‖ ciphertext ‖ tag(16)` — a fresh random nonce
@@ -87,7 +91,7 @@ final class IosSecretKeyStore: IosNativeKeyStore {
         return combined.toKotlinByteArray()
     }
 
-    func decrypt(ciphertext: KotlinByteArray, aad: KotlinByteArray) throws -> KotlinByteArray {
+    func decrypt(ciphertext: KotlinByteArray, aad_ aad: KotlinByteArray) throws -> KotlinByteArray {
         let key = try dataKey()
         let box = try AES.GCM.SealedBox(combined: ciphertext.toData())
         // Throws `CryptoKitError.authenticationFailure` on wrong key / tamper / AAD

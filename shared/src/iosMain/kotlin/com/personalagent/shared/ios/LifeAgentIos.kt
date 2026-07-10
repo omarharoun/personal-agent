@@ -1,0 +1,294 @@
+package com.personalagent.shared.ios
+
+import com.personalagent.shared.chat.ChatStore
+import com.personalagent.shared.chat.StoredConversation
+import com.personalagent.shared.chat.StoredMessage
+import com.personalagent.shared.crypto.EncryptedKeyValueStorage
+import com.personalagent.shared.crypto.IosNativeKeyStore
+import com.personalagent.shared.crypto.IosSecretKeyProvider
+import com.personalagent.shared.crypto.SecretKeyProvider
+import com.personalagent.shared.hermes.ChatStreamEvent
+import com.personalagent.shared.hermes.DueReminder
+import com.personalagent.shared.hermes.HermesClient
+import com.personalagent.shared.hermes.HermesConfig
+import com.personalagent.shared.hermes.HermesConfigStore
+import com.personalagent.shared.hermes.HermesJob
+import com.personalagent.shared.hermes.HermesMessage
+import com.personalagent.shared.hermes.HermesReminderPoller
+import com.personalagent.shared.hermes.RunEvent
+import com.personalagent.shared.hermes.SessionHydration
+import com.personalagent.shared.hermes.ToolFinding
+import com.personalagent.shared.hermes.WrittenDocument
+import com.personalagent.shared.hermes.HermesWireMessage
+import com.personalagent.shared.hermes.NotifiedReminderStore
+import com.personalagent.shared.hermes.ReflectionCadence
+import com.personalagent.shared.hermes.ReflectionStore
+import com.personalagent.shared.hermes.ReminderHistory
+import com.personalagent.shared.hermes.ReminderHistoryStore
+import com.personalagent.shared.hermes.ReminderRecord
+import com.personalagent.shared.hermes.ReminderStatus
+import com.personalagent.shared.hermes.ReminderView
+import com.personalagent.shared.hermes.oneShotScheduleMinutes
+import com.personalagent.shared.home.HomeCacheStore
+import com.personalagent.shared.knowledge.KnowledgeGraph
+import com.personalagent.shared.knowledge.KnowledgeGraphService
+import com.personalagent.shared.knowledge.KnowledgeGraphStore
+import com.personalagent.shared.notes.MemoStore
+import com.personalagent.shared.profile.ProfileStore
+import com.personalagent.shared.safety.CrisisAssessment
+import com.personalagent.shared.safety.CrisisLevel
+import com.personalagent.shared.safety.CrisisResponder
+import com.personalagent.shared.safety.CrisisResponse
+import com.personalagent.shared.safety.DefaultCrisisResourceProvider
+import com.personalagent.shared.safety.KeywordCrisisRecognizer
+import com.personalagent.shared.safety.TrustedContactsStore
+import com.personalagent.shared.store.IosKeyValueStorage
+import com.personalagent.shared.tasks.TaskStore
+import com.personalagent.shared.util.SystemClock
+import kotlinx.coroutines.flow.collect
+
+/**
+ * The single Swift-facing entry point into the shared Hermes Life Agent stack.
+ *
+ * Rationale for a facade (mirrors [com.personalagent.shared.ios.IosFactories], but
+ * for the Hermes-CLIENT path the SwiftUI parity build actually uses):
+ *  - Kotlin **default arguments don't cross the ObjC/Swift bridge**, so SwiftUI
+ *    can't write `ChatStore(storage)` (cap has a default) or `HermesClient(config)`
+ *    (engine/timeouts default). Every factory below fills those in on the Kotlin
+ *    side and returns a ready object.
+ *  - Kotlin **`Flow` can't be consumed from Swift** ergonomically without SKIE, so
+ *    each streaming API is re-exposed as a `suspend fun … (on… : (T) -> Unit)` —
+ *    the supported interop direction (Swift *calls* Kotlin; Kotlin collects). A
+ *    `suspend fun` bridges to Swift `async throws` natively.
+ *
+ * 🔒 Every store is sealed at rest by [EncryptedKeyValueStorage] over the
+ * Swift-provided [IosNativeKeyStore] (Keychain + Secure Enclave + CryptoKit
+ * AES-GCM). Nothing sensitive is ever written to plaintext [IosKeyValueStorage].
+ */
+object LifeAgentIos {
+
+    // --- Crypto + encrypted stores -------------------------------------------
+
+    /** 🔒 Wrap the Swift `IosSecretKeyStore` as the shared [SecretKeyProvider]. */
+    fun createCrypto(native: IosNativeKeyStore): SecretKeyProvider =
+        IosSecretKeyProvider(native)
+
+    private fun enc(crypto: SecretKeyProvider, suite: String) =
+        EncryptedKeyValueStorage(IosKeyValueStorage(suite), crypto)
+
+    /** 🔒 Connection to the user's own Hermes (base URL + key + memory-scope key). */
+    fun hermesConfigStore(crypto: SecretKeyProvider): HermesConfigStore =
+        HermesConfigStore(enc(crypto, "hermes_connection"))
+
+    fun chatStore(crypto: SecretKeyProvider): ChatStore =
+        ChatStore(enc(crypto, "chat_history"))
+
+    fun memoStore(crypto: SecretKeyProvider): MemoStore =
+        MemoStore(enc(crypto, "memos"))
+
+    fun taskStore(crypto: SecretKeyProvider): TaskStore =
+        TaskStore(enc(crypto, "tasks"))
+
+    fun reminderHistoryStore(crypto: SecretKeyProvider): ReminderHistoryStore =
+        ReminderHistoryStore(enc(crypto, "reminder_history"))
+
+    fun notifiedReminderStore(crypto: SecretKeyProvider): NotifiedReminderStore =
+        NotifiedReminderStore(enc(crypto, "reminder_notified"))
+
+    fun homeCacheStore(crypto: SecretKeyProvider): HomeCacheStore =
+        HomeCacheStore(enc(crypto, "home_cache"))
+
+    fun profileStore(crypto: SecretKeyProvider): ProfileStore =
+        ProfileStore(enc(crypto, "profile"))
+
+    fun reflectionStore(crypto: SecretKeyProvider): ReflectionStore =
+        ReflectionStore(enc(crypto, "reflection"))
+
+    fun knowledgeGraphStore(crypto: SecretKeyProvider): KnowledgeGraphStore =
+        KnowledgeGraphStore(enc(crypto, "knowledge_graph"))
+
+    fun knowledgeGraphService(chat: ChatStore, kg: KnowledgeGraphStore): KnowledgeGraphService =
+        KnowledgeGraphService(chat, kg)
+
+    /** 🔒 Crisis (Gate 2) — consent-first; contacts NO ONE automatically. */
+    fun trustedContactsStore(crypto: SecretKeyProvider): TrustedContactsStore =
+        TrustedContactsStore(enc(crypto, "trusted_contacts"))
+
+    fun crisisRecognizer(): KeywordCrisisRecognizer = KeywordCrisisRecognizer()
+
+    fun crisisResponder(): CrisisResponder = CrisisResponder(DefaultCrisisResourceProvider())
+
+    // --- Hermes client + value constructors ----------------------------------
+
+    fun client(config: HermesConfig): HermesClient = HermesClient(config)
+
+    fun wireMessage(role: String, content: String): HermesWireMessage =
+        HermesWireMessage(role = role, content = content)
+
+    fun reminderRecord(id: String, text: String, targetMillis: Long): ReminderRecord =
+        ReminderRecord(id = id, text = text, targetMillis = targetMillis)
+
+    fun scheduleForMinutes(nowMillis: Long, targetMillis: Long): String =
+        oneShotScheduleMinutes(nowMillis, targetMillis)
+
+    fun mergeReminders(
+        liveJobs: List<HermesJob>,
+        history: List<ReminderRecord>,
+        nowMillis: Long,
+    ): List<ReminderView> = ReminderHistory.merge(liveJobs, history, nowMillis)
+
+    /** "UPCOMING" | "DUE_NOW" | "DONE" for a [ReminderView] (enum kept in Kotlin). */
+    fun reminderStatusName(view: ReminderView): String = view.status.name
+
+    /** Home dashboard: only the not-yet-done reminders, from local history alone. */
+    fun upcomingReminders(history: List<ReminderRecord>, nowMillis: Long): List<ReminderView> =
+        ReminderHistory.merge(emptyList(), history, nowMillis)
+            .filter { it.status == ReminderStatus.UPCOMING || it.status == ReminderStatus.DUE_NOW }
+
+    fun nowMillis(): Long = SystemClock.nowMillis()
+
+    // --- ChatStore <-> Swift value helpers -----------------------------------
+    // StoredConversation/StoredMessage have default args, so build them here.
+
+    fun storedMessage(id: Long, role: String, text: String, time: Long): StoredMessage =
+        StoredMessage(id = id, role = role, text = text, time = time)
+
+    fun storedConversation(
+        id: Long,
+        title: String,
+        conversationId: String,
+        createdAt: Long,
+        updatedAt: Long,
+        messages: List<StoredMessage>,
+        fromHermes: Boolean,
+    ): StoredConversation = StoredConversation(
+        id = id,
+        title = title,
+        conversationId = conversationId,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        messages = messages,
+        fromHermes = fromHermes,
+    )
+
+    // --- Flow → suspend+callback wrappers ------------------------------------
+
+    /**
+     * Stream a chat reply. Invokes [onDelta] for each text chunk on the calling
+     * coroutine's context; the returned `async` completes when the stream ends
+     * (or throws a `HermesException`, surfaced to Swift as a thrown error).
+     */
+    suspend fun streamChat(
+        client: HermesClient,
+        messages: List<HermesWireMessage>,
+        sessionId: String?,
+        onDelta: (String) -> Unit,
+    ) {
+        client.streamChat(messages, sessionId).collect { event ->
+            if (event is ChatStreamEvent.Delta) onDelta(event.text)
+        }
+    }
+
+    /**
+     * Run one reminder poll (ask Hermes for jobs, work out which are newly due,
+     * hand each to [notify], and record it so it doesn't fire again). Returns the
+     * reminders surfaced this pass.
+     */
+    suspend fun pollReminders(
+        client: HermesClient,
+        notified: NotifiedReminderStore,
+        notify: (DueReminder) -> Unit,
+    ): List<DueReminder> =
+        HermesReminderPoller(client, notified) { SystemClock.nowMillis() }.pollOnce(notify)
+
+    // --- Crisis (Gate 2) — enum comparison kept on the Kotlin side --------------
+
+    /**
+     * 🔒 Consult the conservative recognizer for one user turn and, only on
+     * POSSIBLE_DISTRESS, build the consent-first supportive [CrisisResponse]
+     * (contacts NO ONE). Returns null otherwise. Keeps [CrisisLevel] comparison in
+     * Kotlin so Swift never touches the bridged enum.
+     */
+    fun crisisResponseFor(
+        recognizer: KeywordCrisisRecognizer,
+        responder: CrisisResponder,
+        text: String,
+    ): CrisisResponse? {
+        val assessment = recognizer.assess(text)
+        return if (assessment.level == CrisisLevel.POSSIBLE_DISTRESS) responder.respond(assessment)
+        else null
+    }
+
+    /** 🔒 The supportive surface on demand (user tapped "Find support"). */
+    fun supportResponse(responder: CrisisResponder): CrisisResponse? =
+        responder.respond(CrisisAssessment(CrisisLevel.POSSIBLE_DISTRESS, "User opened support."))
+
+    // --- Reflection — enum construction/read kept on the Kotlin side ------------
+
+    /** "OFF" | "WEEKLY" | "MONTHLY" for the currently saved cadence. */
+    fun reflectionCadenceName(store: ReflectionStore): String = store.load().cadence.name
+
+    fun setReflectionCadence(store: ReflectionStore, name: String, nowMillis: Long) {
+        val cadence = when (name.uppercase()) {
+            "WEEKLY" -> ReflectionCadence.WEEKLY
+            "MONTHLY" -> ReflectionCadence.MONTHLY
+            else -> ReflectionCadence.OFF
+        }
+        store.setCadence(cadence, nowMillis)
+    }
+
+    /** "weekly" | "monthly" prompt word for the saved cadence (weekly if OFF). */
+    fun reflectionPromptWord(store: ReflectionStore): String = store.load().cadence.promptWord
+
+    // --- Knowledge graph — provenance label (enum kept in Kotlin) ---------------
+
+    /** "MODEL" | "KEYWORDS" | "EMPTY" for how the cached graph was produced. */
+    fun knowledgeSourceName(graph: KnowledgeGraph): String = graph.source.name
+
+    // --- Agent runs (/v1/runs) — sealed RunEvent fanned to per-variant callbacks --
+
+    /**
+     * Stream a run's live events (tool starts/completions, reasoning, answer deltas,
+     * approval requests, completion/failure) to Swift. The Kotlin `when` over the
+     * sealed [RunEvent] stays here so Swift never pattern-matches the bridged type.
+     * Answer via [HermesClient.submitApproval] (called directly from Swift).
+     */
+    suspend fun runEvents(
+        client: HermesClient,
+        runId: String,
+        onToolStarted: (tool: String, preview: String) -> Unit,
+        onToolCompleted: (tool: String, durationSec: Double, error: Boolean) -> Unit,
+        onReasoning: (String) -> Unit,
+        onDelta: (String) -> Unit,
+        onCompleted: (output: String, inputTokens: Long, outputTokens: Long, totalTokens: Long) -> Unit,
+        onFailed: (String) -> Unit,
+        onApprovalRequested: (command: String, choices: List<String>) -> Unit,
+        onApprovalResolved: (String) -> Unit,
+    ) {
+        client.runEvents(runId).collect { ev ->
+            when (ev) {
+                is RunEvent.ToolStarted -> onToolStarted(ev.tool, ev.preview)
+                is RunEvent.ToolCompleted -> onToolCompleted(ev.tool, ev.durationSec, ev.error)
+                is RunEvent.Reasoning -> onReasoning(ev.text)
+                is RunEvent.Delta -> onDelta(ev.text)
+                is RunEvent.Completed -> onCompleted(
+                    ev.output,
+                    ev.usage?.inputTokens ?: 0L,
+                    ev.usage?.outputTokens ?: 0L,
+                    ev.usage?.totalTokens ?: 0L,
+                )
+                is RunEvent.Failed -> onFailed(ev.message)
+                is RunEvent.ApprovalRequested -> onApprovalRequested(ev.command, ev.choices)
+                is RunEvent.ApprovalResolved -> onApprovalResolved(ev.choice)
+            }
+        }
+    }
+
+    /** Tool results mined from a run transcript ("what it found"). */
+    fun runFindings(messages: List<HermesMessage>): List<ToolFinding> =
+        SessionHydration.findings(messages, 6)
+
+    /** Documents the agent wrote during a run (write_file-style tool calls). */
+    fun runDocuments(messages: List<HermesMessage>): List<WrittenDocument> =
+        SessionHydration.documents(messages)
+}

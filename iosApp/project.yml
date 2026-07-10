@@ -1,24 +1,23 @@
 # XcodeGen spec — generates iosApp.xcodeproj reproducibly.
 # Run:  cd iosApp && xcodegen generate   (brew install xcodegen)
-# Then: open iosApp.xcodeproj  and build to a simulator/device on macOS.
+# Then: xcodebuild ... or open iosApp.xcodeproj on macOS.
 #
 # A hand-written .pbxproj is intentionally NOT committed: it is huge and fragile.
 # This spec is the source of truth.
 #
-# BUILD SCOPE: the target compiles only the Hermes Life Agent client path
-# (Connect + streaming Chat), mirroring the shipped Android app. Per the iOS
-# README this client is a **pure-Swift** starting point (URLSession; it does NOT
-# `import Shared`), so the KMP `Shared.framework` is intentionally NOT a
-# dependency here — that keeps the iOS build self-contained (no Kotlin/Native
-# link + framework-embed step). The legacy on-device stack (Notes/Reminders/Plan
-# over on-device ML + MLX) is retired on iOS just as it was on Android; those
-# .swift files stay in the repo but are not in the build target. Re-add the
-# framework dependency + preBuildScript here if iOS adopts the KMP shared logic.
+# BUILD SCOPE (feat/ios-parity): the app is the **Hermes Life Agent client** at
+# FULL feature parity with Android, built as SwiftUI over the shared Kotlin
+# Multiplatform module (`:shared`). The KMP `Shared.framework` (iosArm64 for
+# device, iosX64 for the Intel-Mac simulator) is built + embedded by the
+# `embedAndSignAppleFrameworkForXcode` gradle task in a pre-build phase. The
+# legacy on-device stack (MLX LLM / NaturalLanguage embedder / model
+# provisioning / the pure-Swift URLSession client) is excluded from the target —
+# those .swift files stay in the repo for reference but are not compiled.
 name: iosApp
 options:
   bundleIdPrefix: com.personalagent
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -26,12 +25,34 @@ targets:
   iosApp:
     type: application
     platform: iOS
-    # Explicit whitelist — only the self-contained Hermes-client files
-    # (Foundation + SwiftUI + Security; no `import Shared`).
+    # Compile every .swift in iosApp/ EXCEPT the retired on-device stack + the
+    # pure-Swift client that the shared Kotlin `HermesClient` now replaces.
     sources:
-      - path: iosApp/iOSApp.swift
-      - path: iosApp/HermesClient.swift
-      - path: iosApp/HermesLifeAgentView.swift
+      - path: iosApp
+        excludes:
+          - "Info.plist"
+          # Pure-Swift Hermes client — replaced by shared Kotlin HermesClient.
+          - "HermesClient.swift"
+          - "HermesLifeAgentView.swift"
+          # Retired on-device stack (MLX LLM / NL embedder / provisioning / cloud).
+          - "ContentView.swift"
+          - "ConversationView.swift"
+          - "AppModel.swift"
+          - "IosEmbedder.swift"
+          - "IosOnDeviceLlm.swift"
+          - "LlmModelProvisioner.swift"
+          - "IosModelProvisioner.swift"
+          - "ModelSetupModel.swift"
+          - "ModelSetupView.swift"
+          - "IosReminderScheduler.swift"
+          - "CloudSettingsView.swift"
+          - "MemoryView.swift"
+          - "AgeGateView.swift"
+          - "OnboardingFlowView.swift"
+          - "RecoverySetupView.swift"
+          - "SettingsView.swift"
+          - "SupportResponseView.swift"
+          - "TrustedContactsView.swift"
     info:
       path: iosApp/Info.plist
       # XcodeGen GENERATES this plist from the keys below — a hand-edited
@@ -44,7 +65,30 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # On-device speech recognition + microphone for hold-to-talk voice input.
+        NSMicrophoneUsageDescription: "Hold the mic to dictate a message to your Life Agent. Audio is transcribed on your device."
+        NSSpeechRecognitionUsageDescription: "Speech is recognized on your device to turn what you say into a message. Nothing is sent to Apple or any third party."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.personalagent.ios
         GENERATE_INFOPLIST_FILE: NO
+        # Link + find the KMP framework built by the pre-build phase below.
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -framework
+          - Shared
+    preBuildScripts:
+      - name: "Build shared KMP framework (Shared.framework)"
+        # Runs the Kotlin/Native embed+sign task, which builds Shared.framework
+        # for the current CONFIGURATION/SDK/ARCHS and copies it into the app.
+        # JAVA_HOME must be set explicitly — Xcode build phases don't source the
+        # login shell (see ~/.build_env on the build Mac).
+        script: |
+          export JAVA_HOME="$HOME/tools/jdk21/Contents/Home"
+          export ANDROID_HOME="$HOME/android-sdk"
+          cd "$SRCROOT/.."
+          ./gradlew :shared:embedAndSignAppleFrameworkForXcode
+        basedOnDependencyAnalysis: false
