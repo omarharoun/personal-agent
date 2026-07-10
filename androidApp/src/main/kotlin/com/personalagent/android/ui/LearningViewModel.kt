@@ -10,6 +10,8 @@ import com.personalagent.shared.hermes.HermesWireMessage
 import com.personalagent.shared.hermes.LearningPrompts
 import com.personalagent.shared.hermes.WebToolAvailability
 import com.personalagent.shared.learning.LearningGoal
+import com.personalagent.shared.learning.LearningRecommendationParser
+import com.personalagent.shared.learning.LearningResource
 import com.personalagent.shared.learning.LearningStore
 import com.personalagent.shared.model.Ids
 import com.personalagent.shared.util.SystemClock
@@ -35,7 +37,11 @@ class LearningViewModel(
 
     data class State(
         val goals: List<LearningGoal> = emptyList(),
+        // Resources per goal id (authoritative, from the local store).
+        val resources: Map<String, List<LearningResource>> = emptyMap(),
         val saving: Boolean = false,
+        // Goal id currently being asked "what's next" for (shows a spinner).
+        val recommendingGoalId: String? = null,
         val message: String? = null,
         // Web-search backend availability (checked against /v1/toolsets). Null = unknown.
         val webAvailable: Boolean? = null,
@@ -51,9 +57,12 @@ class LearningViewModel(
         checkWebAvailability()
     }
 
-    /** Reload the local (authoritative) goal list. */
+    /** Reload the local (authoritative) goals + their resources. */
     fun reload() {
-        _state.update { it.copy(goals = store.goals()) }
+        val goals = store.goals()
+        _state.update {
+            it.copy(goals = goals, resources = goals.associate { g -> g.id to store.resources(g.id) })
+        }
     }
 
     /**
@@ -101,6 +110,42 @@ class LearningViewModel(
                 _state.update { it.copy(saving = false, message = e.message) }
             } catch (e: Throwable) {
                 _state.update { it.copy(saving = false, message = "Saved locally; couldn't sync to your agent's memory.") }
+            }
+        }
+    }
+
+    /**
+     * Step 2 — ask the agent for the next right free-open-web resource(s) for a
+     * goal, filtered against what's already been seen/finished/abandoned. Writes
+     * each as RECOMMENDED into the authoritative local store.
+     */
+    fun recommend(goalId: String) {
+        val goal = store.goal(goalId) ?: return
+        if (_state.value.recommendingGoalId != null) return
+        if (_state.value.webAvailable == false) {
+            _state.update { it.copy(message = WebToolAvailability.UNAVAILABLE_MESSAGE) }
+            return
+        }
+        _state.update { it.copy(recommendingGoalId = goalId, message = null) }
+        viewModelScope.launch {
+            try {
+                val avoid = store.resources(goalId)
+                val prompt = LearningPrompts.recommendNext(goal, avoid, adaptationHint = null)
+                val reply = hermes.complete(user(prompt), session)
+                val now = SystemClock.nowMillis()
+                val parsed = LearningRecommendationParser.parse(reply, goalId, now)
+                val added = store.addRecommendations(goalId, parsed)
+                reload()
+                val msg = when {
+                    added.isNotEmpty() -> "Added ${added.size} suggestion${if (added.size == 1) "" else "s"}."
+                    parsed.isEmpty() -> "No new free resources found right now — try again later."
+                    else -> "Nothing new — you've already got those."
+                }
+                _state.update { it.copy(recommendingGoalId = null, message = msg) }
+            } catch (e: HermesException) {
+                _state.update { it.copy(recommendingGoalId = null, message = e.message) }
+            } catch (e: Throwable) {
+                _state.update { it.copy(recommendingGoalId = null, message = "Couldn't get a recommendation just now.") }
             }
         }
     }

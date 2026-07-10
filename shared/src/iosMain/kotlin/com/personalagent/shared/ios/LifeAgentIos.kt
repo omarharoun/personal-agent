@@ -33,7 +33,11 @@ import com.personalagent.shared.home.HomeCacheStore
 import com.personalagent.shared.knowledge.KnowledgeGraph
 import com.personalagent.shared.knowledge.KnowledgeGraphService
 import com.personalagent.shared.knowledge.KnowledgeGraphStore
+import com.personalagent.shared.hermes.LearningPrompts
 import com.personalagent.shared.learning.LearningGoal
+import com.personalagent.shared.learning.LearningKind
+import com.personalagent.shared.learning.LearningRecommendationParser
+import com.personalagent.shared.learning.LearningResource
 import com.personalagent.shared.learning.LearningStore
 import com.personalagent.shared.model.Ids
 import com.personalagent.shared.notes.MemoStore
@@ -134,6 +138,27 @@ object LifeAgentIos {
             createdAt = now,
         )
     }
+
+    /** Human label for a resource kind (enum comparison kept on the Kotlin side). */
+    fun learningKindLabel(kind: LearningKind): String = when (kind) {
+        LearningKind.VIDEO -> "Video"
+        LearningKind.ARTICLE -> "Article"
+        LearningKind.COURSE -> "Course"
+        LearningKind.DOCS -> "Docs"
+        LearningKind.INTERACTIVE -> "Interactive"
+        LearningKind.OTHER -> "Resource"
+    }
+
+    /**
+     * Step 2 — get the agent's next-resource prompt (defaults filled Kotlin-side)
+     * and parse its reply into sanitized, inert resources. Kept as two calls so
+     * Swift does the (async) network in between.
+     */
+    fun recommendPrompt(goal: LearningGoal, avoid: List<LearningResource>, adaptationHint: String?): String =
+        LearningPrompts.recommendNext(goal, avoid, adaptationHint)
+
+    fun parseRecommendations(reply: String, goalId: String): List<LearningResource> =
+        LearningRecommendationParser.parse(reply, goalId, SystemClock.nowMillis(), 3)
 
     /** 🔒 Crisis (Gate 2) — consent-first; contacts NO ONE automatically. */
     fun trustedContactsStore(crypto: SecretKeyProvider): TrustedContactsStore =

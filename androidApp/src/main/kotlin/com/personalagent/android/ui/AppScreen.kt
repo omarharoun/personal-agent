@@ -128,6 +128,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import com.personalagent.android.AppContainer
+import com.personalagent.android.safety.ContactIntents
 import com.personalagent.android.ui.theme.HermesText
 import com.personalagent.android.ui.theme.ThemeMode
 import com.personalagent.android.ui.voice.rememberVoiceController
@@ -277,7 +278,10 @@ fun AppScreen(
                 GoalsScreen(goalsVm)
             }
             Surface.LEARNING -> SubScreen("Learning", { backHome() }, snackbar) {
-                LearningScreen(learningVm)
+                // 🔒 REVIEW REQUIRED — web-derived links open ONLY in the system
+                // browser (ACTION_VIEW), never an in-app WebView of arbitrary HTML.
+                val ctx = LocalContext.current
+                LearningScreen(learningVm, onOpenUrl = { url -> ContactIntents.openUrl(ctx, url) })
             }
             Surface.REFLECTION -> SubScreen("Reflection", { backHome() }, snackbar) {
                 ReflectionScreen(reflectionVm)

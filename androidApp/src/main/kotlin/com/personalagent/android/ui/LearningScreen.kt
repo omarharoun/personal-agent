@@ -14,8 +14,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,6 +33,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.personalagent.shared.learning.LearningGoal
+import com.personalagent.shared.learning.LearningKind
+import com.personalagent.shared.learning.LearningResource
 
 /**
  * Phase 6 — the Learning Guide (Step 1: declare + list goals). The user says what
@@ -38,7 +43,7 @@ import com.personalagent.shared.learning.LearningGoal
  * (authoritative, instant) and are mirrored to Hermes memory as the current focus.
  */
 @Composable
-fun LearningScreen(vm: LearningViewModel) {
+fun LearningScreen(vm: LearningViewModel, onOpenUrl: (String) -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     var topic by remember { mutableStateOf("") }
     var why by remember { mutableStateOf("") }
@@ -136,7 +141,14 @@ fun LearningScreen(vm: LearningViewModel) {
             )
         } else {
             active.forEach { goal ->
-                GoalCard(goal, onArchive = { vm.archiveGoal(goal.id) })
+                GoalCard(
+                    goal = goal,
+                    resources = state.resources[goal.id].orEmpty(),
+                    recommending = state.recommendingGoalId == goal.id,
+                    onRecommend = { vm.recommend(goal.id) },
+                    onArchive = { vm.archiveGoal(goal.id) },
+                    onOpenUrl = onOpenUrl,
+                )
                 Spacer(Modifier.height(10.dp))
             }
         }
@@ -145,7 +157,14 @@ fun LearningScreen(vm: LearningViewModel) {
 }
 
 @Composable
-private fun GoalCard(goal: LearningGoal, onArchive: () -> Unit) {
+private fun GoalCard(
+    goal: LearningGoal,
+    resources: List<LearningResource>,
+    recommending: Boolean,
+    onRecommend: () -> Unit,
+    onArchive: () -> Unit,
+    onOpenUrl: (String) -> Unit,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Text(goal.topic, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -160,9 +179,65 @@ private fun GoalCard(goal: LearningGoal, onArchive: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+
+            // Recommended resources (web-derived → inert display text; 🔒).
+            if (resources.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                resources.forEach { r ->
+                    ResourceRow(r, onOpenUrl)
+                }
+            }
+
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(onClick = onRecommend, enabled = !recommending) {
+                    if (recommending) {
+                        CircularProgressIndicator(Modifier.height(16.dp))
+                        Spacer(Modifier.height(1.dp))
+                        Text("  Finding…")
+                    } else {
+                        Text(if (resources.isEmpty()) "What's next?" else "More like this")
+                    }
+                }
+                Spacer(Modifier.weight(1f))
                 TextButton(onClick = onArchive) { Text("Archive") }
             }
         }
     }
+}
+
+/**
+ * One recommended resource. 🔒 REVIEW REQUIRED — [LearningResource.title]/[why]/
+ * [source] are web-derived and rendered as INERT text (never markdown/HTML/links);
+ * the URL opens ONLY in the system browser via [onOpenUrl] (Android ACTION_VIEW),
+ * never an in-app WebView of arbitrary HTML.
+ */
+@Composable
+private fun ResourceRow(r: LearningResource, onOpenUrl: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+        Text(r.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        val tag = listOfNotNull(r.source.ifBlank { null }, kindLabel(r.kind)).joinToString(" · ")
+        if (tag.isNotBlank()) {
+            Text(tag, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (r.why.isNotBlank()) {
+            Text(r.why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+            OutlinedButton(onClick = { onOpenUrl(r.url) }) { Text("Open") }
+        }
+    }
+}
+
+private fun kindLabel(kind: LearningKind): String = when (kind) {
+    LearningKind.VIDEO -> "Video"
+    LearningKind.ARTICLE -> "Article"
+    LearningKind.COURSE -> "Course"
+    LearningKind.DOCS -> "Docs"
+    LearningKind.INTERACTIVE -> "Interactive"
+    LearningKind.OTHER -> "Resource"
 }
