@@ -28,8 +28,8 @@ android {
         applicationId = "com.personalagent.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 15
-        versionName = "2.4.0"
+        versionCode = 16
+        versionName = "2.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Hermes is still the brain (server-side). The only on-device native code is
         // the Vosk speech engine (libvosk.so) for fully-offline voice input. Limit the

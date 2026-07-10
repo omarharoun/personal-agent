@@ -59,8 +59,8 @@ targets:
       # Info.plist at this path is overwritten on `xcodegen generate`. So the
       # app version and these UI keys must live here, not in the .plist file.
       properties:
-        CFBundleShortVersionString: "2.4.0"   # match the Android release train
-        CFBundleVersion: "240"
+        CFBundleShortVersionString: "2.5.0"   # match the Android release train
+        CFBundleVersion: "250"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
