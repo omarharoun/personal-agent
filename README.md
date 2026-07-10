@@ -11,12 +11,13 @@ a small server); the app is a thin, trusted client to it. **All memory and data
 live on your server. The app stores no sensitive user content** — only the
 connection config (URL, key) and a memory-scope key, sealed on-device.
 
-> **Status: v1 complete — all 5 phases.** Connect + streaming chat (Phase 1),
-> notes + reminders (Phase 2), goals + crisis handling (Phase 3), reflection
-> (Phase 4), and polish + production slim (Phase 5). The app is a thin ~21 MB
-> Hermes client (the on-device ML stack is retired — Hermes is the brain). A
-> first-run **setup guide** walks you through pointing it at your Hermes. See the
-> per-phase notes in [`docs/`](docs/) (PHASE0–PHASE5).
+> **Status: v1 complete — all 5 phases, plus Phase 6 (Learning Guide).** Connect +
+> streaming chat (Phase 1), notes + reminders (Phase 2), goals + crisis handling
+> (Phase 3), reflection (Phase 4), polish + production slim (Phase 5), and a
+> memory-grounded **Learning Guide** over your Hermes' web tools (Phase 6 — see
+> *What's new in v2.5.0*). The app is a thin Hermes client (the on-device ML stack
+> is retired — Hermes is the brain). A first-run **setup guide** walks you through
+> pointing it at your Hermes. See the per-phase notes in [`docs/`](docs/).
 >
 > ⚠️ Three 🔒 areas are **built and flagged, not shippable** until human review:
 > credential/session-key storage, crisis handling (crisis-expert review; resources
@@ -32,6 +33,48 @@ connection config (URL, key) and a memory-scope key, sealed on-device.
 > **a human must review them before real users rely on them.** See
 > [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) and the per-phase notes in
 > [`docs/PHASE0.md`](docs/PHASE0.md), [`docs/PHASE1.md`](docs/PHASE1.md).
+
+## What's new in v2.5.0 — Learning Guide (Phase 6)
+
+**A personal, memory-grounded "skill-up" guide, on both platforms.** Tell your
+agent what you want to get better at; it uses *its* accumulated memory of you plus
+*your Hermes'* built-in web search/browse tools to point you at the next right
+thing to learn from the **free, open web** — then remembers what it suggested and
+how it landed, and adapts.
+
+- **Declare a goal** (Learning drawer entry) — topic + why, your starting level
+  (asked once), and how you like to learn (only if you volunteer it). Goals live
+  in the authoritative device-local `LearningStore`; a compact "current focus" is
+  mirrored to Hermes memory.
+- **What's next?** — for a goal, the agent runs `web_search`/`web_extract` and
+  returns **1–3 concrete free resources** (a specific video/doc/course page, never
+  a listicle), each with one honest sentence of *why this, for you, now*, filtered
+  against your level/style and what you've already seen/finished/abandoned.
+- **Close the loop** — one tap marks a resource started / finished / abandoned /
+  loved / not-for-me. The agent adapts: abandon a concept twice → it's approached
+  differently; finish fast → it steps up; prefer video → video is weighted.
+- **Woven in, not bolted on** — a quiet learning touch appears in the Phase-4
+  reflection only when something's in progress, and the Goals screen links to the
+  guide. Same one-tap, quiet-if-ignored ethos as the rest of the app.
+
+**Hard boundaries (enforced):** guide-to-open-web only — the app **never
+scrapes, re-hosts, or stores third-party content**; it keeps only your own state
+plus the link/title/one-line rationale. **No new backend** — everything runs
+through *your* Hermes (its web tools, its memory); the app stays a thin client. If
+your Hermes has no web-search backend configured, the guide says so (checked via
+`GET /v1/toolsets`) instead of failing silently.
+
+**🔒 REVIEW REQUIRED (built + flagged, not shipped):** (1) fetched web content is
+**untrusted** — the recommendation prompt tells the agent to treat page text as
+data, never as commands (Hermes also wraps tool output in
+`<untrusted_tool_result>`); the app parses/render titles/URLs/summaries as **inert
+text**. (2) Links open **only** in the system browser (Android `ACTION_VIEW`, iOS
+`UIApplication.open`) — **no in-app WebView** of arbitrary HTML. Search the code
+for `REVIEW REQUIRED`.
+
+Shared logic lives in `:shared` (`learning/` + `hermes/LearningPrompts.kt`); the
+Android Compose `LearningScreen` and iOS SwiftUI `LearningView` are thin UIs over
+it.
 
 ## What's new in v2.4.0
 
