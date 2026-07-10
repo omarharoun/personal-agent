@@ -20,10 +20,10 @@ on:
 
 jobs:
   build:
-    # Apple-silicon runner — required: the shared KMP framework links iosArm64 and
-    # the MLX Swift package is arm64-only.
+    # macOS runner — the shared KMP framework links iosArm64 (a device build
+    # cross-compiles fine on either host arch).
     runs-on: macos-14
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -35,6 +35,35 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
+
+      # The app is SwiftUI over the shared KMP module: the Xcode pre-build phase
+      # runs ./gradlew :shared:embedAndSignAppleFrameworkForXcode, which needs a
+      # JDK (with javac) and — because :shared also declares an android { } target
+      # that Gradle configures — an Android SDK.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Android SDK 36
+        run: |
+          set -e
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      # The committed gradle.properties pins org.gradle.java.home to a Linux dev
+      # path; on the runner point Gradle at the setup-java JDK instead. A
+      # GRADLE_USER_HOME properties file takes precedence over the project one.
+      - name: Point Gradle at the runner JDK
+        run: |
+          mkdir -p ~/.gradle
+          {
+            echo "org.gradle.java.home=$JAVA_HOME"
+            echo "org.gradle.java.installations.paths=$JAVA_HOME"
+            echo "org.gradle.java.installations.auto-detect=false"
+          } >> ~/.gradle/gradle.properties
 
       - name: Install XcodeGen
         run: brew install xcodegen

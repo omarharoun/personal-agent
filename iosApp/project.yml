@@ -87,8 +87,10 @@ targets:
         # JAVA_HOME must be set explicitly — Xcode build phases don't source the
         # login shell (see ~/.build_env on the build Mac).
         script: |
-          export JAVA_HOME="$HOME/tools/jdk21/Contents/Home"
-          export ANDROID_HOME="$HOME/android-sdk"
+          # Portable across the build Mac (~/.build_env) and CI (setup-java /
+          # runner Android SDK): use the inherited env, fall back to the Mac paths.
+          export JAVA_HOME="${JAVA_HOME:-$HOME/tools/jdk21/Contents/Home}"
+          export ANDROID_HOME="${ANDROID_HOME:-$HOME/android-sdk}"
           cd "$SRCROOT/.."
           ./gradlew :shared:embedAndSignAppleFrameworkForXcode
         basedOnDependencyAnalysis: false
