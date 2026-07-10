@@ -42,7 +42,9 @@ final class LearningModel: ObservableObject {
         _Concurrency.Task {
             defer { recommendingGoalId = nil }
             let avoid = env.learningStore.resources(goalId: goalId)
-            let prompt = LifeAgentIos.shared.recommendPrompt(goal: goal, avoid: avoid, adaptationHint: nil)
+            // Step 3 — adapt to what we've learned about how this person learns.
+            let hint = LifeAgentIos.shared.learningAdaptationHint(resources: avoid)
+            let prompt = LifeAgentIos.shared.recommendPrompt(goal: goal, avoid: avoid, adaptationHint: hint)
             do {
                 let reply = try await client.complete(messages: [LifeAgentIos.shared.wireMessage(role: "user", content: prompt)], sessionId: "lifeagent-learning")
                 let parsed = LifeAgentIos.shared.parseRecommendations(reply: reply, goalId: goalId)
@@ -88,6 +90,18 @@ final class LearningModel: ObservableObject {
                 message = "Saved locally; couldn't sync to your agent's memory."
             }
             saving = false
+        }
+    }
+
+    /// Step 3 — one-tap status; updates the authoritative store, then best-effort
+    /// syncs the current focus to Hermes memory. Adaptation happens on next recommend.
+    func setStatus(_ resource: LearningResource, _ status: LearningStatus) {
+        env.learningStore.setStatus(resourceId: resource.id, status: status, nowMillis: LifeAgentIos.shared.nowMillis())
+        reload()
+        guard let client, let goal = env.learningStore.goal(id: resource.goalId) else { return }
+        _Concurrency.Task {
+            let prompt = LifeAgentIos.shared.recordStatusPrompt(goal: goal, resource: resource, status: status)
+            _ = try? await client.complete(messages: [LifeAgentIos.shared.wireMessage(role: "user", content: prompt)], sessionId: "lifeagent-learning")
         }
     }
 
@@ -207,13 +221,35 @@ struct LearningView: View {
     // the URL opens ONLY in the system browser (UIApplication.open), never an
     // in-app WebView of arbitrary HTML.
     private func resourceRow(_ r: LearningResource) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let statusKey = LifeAgentIos.shared.learningStatusKey(status: r.status)
+        return VStack(alignment: .leading, spacing: 4) {
             Text(r.title).font(.callout).fontWeight(.medium).foregroundColor(theme.onSurface)
             let tag = [r.source.isEmpty ? nil : r.source, LifeAgentIos.shared.learningKindLabel(kind: r.kind)].compactMap { $0 }.joined(separator: " · ")
             if !tag.isEmpty { Text(tag).font(.caption2).foregroundColor(theme.onSurfaceVariant) }
             if !r.why.isEmpty { Text(r.why).font(.footnote).foregroundColor(theme.onSurfaceVariant) }
-            Button("Open") { if let u = URL(string: r.url) { UIApplication.shared.open(u) } }
-                .font(.footnote).foregroundColor(theme.primary).padding(.top, 2)
+
+            HStack(spacing: 10) {
+                Button("Open") { if let u = URL(string: r.url) { UIApplication.shared.open(u) } }
+                    .font(.footnote).foregroundColor(theme.primary)
+                if statusKey != "RECOMMENDED" {
+                    Text(LifeAgentIos.shared.learningStatusLabel(status: r.status)).font(.caption2).foregroundColor(theme.primary)
+                }
+            }
+            // One-tap status — quiet, no nagging; last tap wins.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(LifeAgentIos.shared.learningTapOptions().enumerated()), id: \.offset) { _, status in
+                        let selected = LifeAgentIos.shared.learningStatusKey(status: status) == statusKey
+                        Button { model.setStatus(r, status) } label: {
+                            Text(LifeAgentIos.shared.learningStatusLabel(status: status)).font(.caption2)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .foregroundColor(selected ? theme.onPrimary : theme.onSurface)
+                                .background(selected ? theme.primary : theme.surfaceVariant)
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
     }

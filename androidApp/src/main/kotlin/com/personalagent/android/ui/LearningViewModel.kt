@@ -9,9 +9,12 @@ import com.personalagent.shared.hermes.HermesException
 import com.personalagent.shared.hermes.HermesWireMessage
 import com.personalagent.shared.hermes.LearningPrompts
 import com.personalagent.shared.hermes.WebToolAvailability
+import com.personalagent.shared.learning.LearningAdaptation
 import com.personalagent.shared.learning.LearningGoal
 import com.personalagent.shared.learning.LearningRecommendationParser
 import com.personalagent.shared.learning.LearningResource
+import com.personalagent.shared.learning.LearningStatus
+import com.personalagent.shared.learning.LearningStatusText
 import com.personalagent.shared.learning.LearningStore
 import com.personalagent.shared.model.Ids
 import com.personalagent.shared.util.SystemClock
@@ -130,7 +133,10 @@ class LearningViewModel(
         viewModelScope.launch {
             try {
                 val avoid = store.resources(goalId)
-                val prompt = LearningPrompts.recommendNext(goal, avoid, adaptationHint = null)
+                // Step 3 — adapt the next request to what we've learned about how
+                // this person learns (abandoned concept, fast finisher, video, …).
+                val hint = LearningAdaptation.hint(avoid)
+                val prompt = LearningPrompts.recommendNext(goal, avoid, adaptationHint = hint)
                 val reply = hermes.complete(user(prompt), session)
                 val now = SystemClock.nowMillis()
                 val parsed = LearningRecommendationParser.parse(reply, goalId, now)
@@ -146,6 +152,28 @@ class LearningViewModel(
                 _state.update { it.copy(recommendingGoalId = null, message = e.message) }
             } catch (e: Throwable) {
                 _state.update { it.copy(recommendingGoalId = null, message = "Couldn't get a recommendation just now.") }
+            }
+        }
+    }
+
+    /**
+     * Step 3 — one-tap status change (started/finished/abandoned/loved/not-for-me).
+     * Updates the authoritative local store immediately, then best-effort syncs the
+     * current focus to Hermes memory so the agent's own recollection stays aligned.
+     * Adaptation happens automatically on the next [recommend] (reads the store).
+     */
+    fun setStatus(resource: LearningResource, status: LearningStatus) {
+        store.setStatus(resource.id, status, SystemClock.nowMillis())
+        reload()
+        val goal = store.goal(resource.goalId) ?: return
+        viewModelScope.launch {
+            try {
+                hermes.complete(
+                    user(LearningPrompts.recordStatus(goal, resource.title, LearningStatusText.memoryPhrase(status))),
+                    session,
+                )
+            } catch (e: Throwable) {
+                // Local state is authoritative; memory sync is best-effort and quiet.
             }
         }
     }

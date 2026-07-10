@@ -35,6 +35,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.personalagent.shared.learning.LearningGoal
 import com.personalagent.shared.learning.LearningKind
 import com.personalagent.shared.learning.LearningResource
+import com.personalagent.shared.learning.LearningStatus
+import com.personalagent.shared.learning.LearningStatusText
 
 /**
  * Phase 6 — the Learning Guide (Step 1: declare + list goals). The user says what
@@ -148,6 +150,7 @@ fun LearningScreen(vm: LearningViewModel, onOpenUrl: (String) -> Unit) {
                     onRecommend = { vm.recommend(goal.id) },
                     onArchive = { vm.archiveGoal(goal.id) },
                     onOpenUrl = onOpenUrl,
+                    onSetStatus = { r, s -> vm.setStatus(r, s) },
                 )
                 Spacer(Modifier.height(10.dp))
             }
@@ -164,6 +167,7 @@ private fun GoalCard(
     onRecommend: () -> Unit,
     onArchive: () -> Unit,
     onOpenUrl: (String) -> Unit,
+    onSetStatus: (LearningResource, LearningStatus) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
@@ -185,7 +189,7 @@ private fun GoalCard(
                 Spacer(Modifier.height(10.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 resources.forEach { r ->
-                    ResourceRow(r, onOpenUrl)
+                    ResourceRow(r, onOpenUrl, onSetStatus)
                 }
             }
 
@@ -217,7 +221,11 @@ private fun GoalCard(
  * never an in-app WebView of arbitrary HTML.
  */
 @Composable
-private fun ResourceRow(r: LearningResource, onOpenUrl: (String) -> Unit) {
+private fun ResourceRow(
+    r: LearningResource,
+    onOpenUrl: (String) -> Unit,
+    onSetStatus: (LearningResource, LearningStatus) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
         Text(r.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
         val tag = listOfNotNull(r.source.ifBlank { null }, kindLabel(r.kind)).joinToString(" · ")
@@ -227,8 +235,32 @@ private fun ResourceRow(r: LearningResource, onOpenUrl: (String) -> Unit) {
         if (r.why.isNotBlank()) {
             Text(r.why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             OutlinedButton(onClick = { onOpenUrl(r.url) }) { Text("Open") }
+            if (r.status != LearningStatus.RECOMMENDED) {
+                Text(
+                    LearningStatusText.label(r.status),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        // One-tap status — quiet, no nagging; last tap wins.
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            LearningStatusText.TAP_OPTIONS.forEach { status ->
+                FilterChip(
+                    selected = r.status == status,
+                    onClick = { onSetStatus(r, status) },
+                    label = { Text(LearningStatusText.label(status), style = MaterialTheme.typography.labelSmall) },
+                )
+            }
         }
     }
 }

@@ -34,10 +34,13 @@ import com.personalagent.shared.knowledge.KnowledgeGraph
 import com.personalagent.shared.knowledge.KnowledgeGraphService
 import com.personalagent.shared.knowledge.KnowledgeGraphStore
 import com.personalagent.shared.hermes.LearningPrompts
+import com.personalagent.shared.learning.LearningAdaptation
 import com.personalagent.shared.learning.LearningGoal
 import com.personalagent.shared.learning.LearningKind
 import com.personalagent.shared.learning.LearningRecommendationParser
 import com.personalagent.shared.learning.LearningResource
+import com.personalagent.shared.learning.LearningStatus
+import com.personalagent.shared.learning.LearningStatusText
 import com.personalagent.shared.learning.LearningStore
 import com.personalagent.shared.model.Ids
 import com.personalagent.shared.notes.MemoStore
@@ -159,6 +162,22 @@ object LifeAgentIos {
 
     fun parseRecommendations(reply: String, goalId: String): List<LearningResource> =
         LearningRecommendationParser.parse(reply, goalId, SystemClock.nowMillis(), 3)
+
+    /** Step 3 — adaptation hint from tracked history (null if no signal yet). */
+    fun learningAdaptationHint(resources: List<LearningResource>): String? =
+        LearningAdaptation.hint(resources)
+
+    /** The one-tap status options + their labels (enum handling stays Kotlin-side). */
+    fun learningTapOptions(): List<LearningStatus> = LearningStatusText.TAP_OPTIONS
+
+    fun learningStatusLabel(status: LearningStatus): String = LearningStatusText.label(status)
+
+    /** Stable string key for a status, so Swift can compare without touching enums. */
+    fun learningStatusKey(status: LearningStatus): String = status.name
+
+    /** Prompt that syncs a status change to Hermes memory as the current focus. */
+    fun recordStatusPrompt(goal: LearningGoal, resource: LearningResource, status: LearningStatus): String =
+        LearningPrompts.recordStatus(goal, resource.title, LearningStatusText.memoryPhrase(status))
 
     /** 🔒 Crisis (Gate 2) — consent-first; contacts NO ONE automatically. */
     fun trustedContactsStore(crypto: SecretKeyProvider): TrustedContactsStore =

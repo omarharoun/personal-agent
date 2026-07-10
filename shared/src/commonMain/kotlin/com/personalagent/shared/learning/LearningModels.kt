@@ -81,3 +81,38 @@ data class LearningState(
     val goals: List<LearningGoal> = emptyList(),
     val resources: List<LearningResource> = emptyList(),
 )
+
+/**
+ * Shared display + memory wording for statuses, so Android and iOS use identical
+ * copy (and the "one-tap status" set is defined in exactly one place).
+ */
+object LearningStatusText {
+
+    /** The tap options offered on a resource (order = how they appear). */
+    val TAP_OPTIONS: List<LearningStatus> = listOf(
+        LearningStatus.STARTED,
+        LearningStatus.FINISHED,
+        LearningStatus.ABANDONED,
+        LearningStatus.LOVED,
+        LearningStatus.NOT_FOR_ME,
+    )
+
+    fun label(status: LearningStatus): String = when (status) {
+        LearningStatus.RECOMMENDED -> "Recommended"
+        LearningStatus.STARTED -> "Started"
+        LearningStatus.FINISHED -> "Finished"
+        LearningStatus.ABANDONED -> "Set aside"
+        LearningStatus.LOVED -> "Loved"
+        LearningStatus.NOT_FOR_ME -> "Not for me"
+    }
+
+    /** First-person phrase used when syncing the change to Hermes memory. */
+    fun memoryPhrase(status: LearningStatus): String = when (status) {
+        LearningStatus.RECOMMENDED -> "was recommended"
+        LearningStatus.STARTED -> "started"
+        LearningStatus.FINISHED -> "finished"
+        LearningStatus.ABANDONED -> "set aside"
+        LearningStatus.LOVED -> "loved"
+        LearningStatus.NOT_FOR_ME -> "decided isn't for me"
+    }
+}
