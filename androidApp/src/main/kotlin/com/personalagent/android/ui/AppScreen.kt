@@ -607,7 +607,7 @@ private fun ConversationContent(
                                 },
                             )
                         }
-                        if (sending) item("typing") { TypingIndicator() }
+                        if (sending && messages.lastOrNull()?.composing != true) item("typing") { TypingIndicator() }
                     }
                 }
             }
