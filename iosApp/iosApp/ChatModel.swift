@@ -273,7 +273,7 @@ final class ChatModel: ObservableObject {
             s.messages = s.messages.map { m in
                 guard let v = m.view else { return m }
                 let newBlocks: [ViewBlock] = v.blocks.map { b in
-                    guard let plan = b as? ViewBlockPlan else { return b }
+                    guard let plan = b as? ViewBlock.Plan else { return b }
                     let items = plan.items.map { it -> PlanRow in
                         it.id == rowId
                             ? PlanRow(id: it.id, title: it.title, time: it.time, note: it.note,
@@ -281,7 +281,7 @@ final class ChatModel: ObservableObject {
                                       actionable: it.actionable)
                             : it
                     }
-                    return ViewBlockPlan(heading: plan.heading, meta: plan.meta, items: items)
+                    return ViewBlock.Plan(heading: plan.heading, meta: plan.meta, items: items)
                 }
                 var out = m
                 out.view = ComposedView(view: v.view, title: v.title, blocks: newBlocks, provenance: v.provenance)
@@ -296,13 +296,13 @@ final class ChatModel: ObservableObject {
         var out = ""
         if let t = view.title { out += t + "\n" }
         for b in view.blocks {
-            if let p = b as? ViewBlockProseLine { out += p.text + "\n" }
-            else if let g = b as? ViewBlockStatGrid {
+            if let p = b as? ViewBlock.ProseLine { out += p.text + "\n" }
+            else if let g = b as? ViewBlock.StatGrid {
                 out += g.stats.map { "\($0.value) \($0.label)" }.joined(separator: "  ·  ") + "\n"
-            } else if let plan = b as? ViewBlockPlan {
+            } else if let plan = b as? ViewBlock.Plan {
                 out += plan.heading + "\n"
                 for it in plan.items { out += (it.done ? "  ✓ " : "  • ") + it.title + "\n" }
-            } else if let rec = b as? ViewBlockResourceRec {
+            } else if let rec = b as? ViewBlock.ResourceRec {
                 out += "→ " + rec.resource.title + "\n"
             }
         }

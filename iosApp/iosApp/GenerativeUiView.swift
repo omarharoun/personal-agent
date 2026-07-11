@@ -42,15 +42,15 @@ struct ComposedViewCard: View {
 
     @ViewBuilder
     private func blockView(_ block: ViewBlock) -> some View {
-        if let p = block as? ViewBlockProseLine {
+        if let p = block as? ViewBlock.ProseLine {
             ProseLineView(block: p)
-        } else if let g = block as? ViewBlockStatGrid {
+        } else if let g = block as? ViewBlock.StatGrid {
             StatGridView(block: g)
-        } else if let s = block as? ViewBlockSparkline {
+        } else if let s = block as? ViewBlock.Sparkline {
             SparklineView(block: s)
-        } else if let plan = block as? ViewBlockPlan {
+        } else if let plan = block as? ViewBlock.Plan {
             PlanView(block: plan, onToggle: onPlanToggle)
-        } else if let rec = block as? ViewBlockResourceRec {
+        } else if let rec = block as? ViewBlock.ResourceRec {
             ResourceRecView(block: rec, onOpen: onResourceOpen)
         } else {
             EmptyView() // unknown primitive → never rendered
@@ -59,7 +59,7 @@ struct ComposedViewCard: View {
 }
 
 private struct ProseLineView: View {
-    let block: ViewBlockProseLine
+    let block: ViewBlock.ProseLine
     @Environment(\.theme) private var theme
     var body: some View {
         // Serif italic — the agent's voice. (Emphasis kept simple as accent-tinted
@@ -72,7 +72,7 @@ private struct ProseLineView: View {
 }
 
 private struct StatGridView: View {
-    let block: ViewBlockStatGrid
+    let block: ViewBlock.StatGrid
     @Environment(\.theme) private var theme
     var body: some View {
         HStack(spacing: 10) {
@@ -91,7 +91,7 @@ private struct StatGridView: View {
 }
 
 private struct SparklineView: View {
-    let block: ViewBlockSparkline
+    let block: ViewBlock.Sparkline
     @Environment(\.theme) private var theme
     private var points: [Double] { block.points.map { $0.doubleValue } }
     var body: some View {
@@ -115,7 +115,7 @@ private struct SparklineView: View {
 }
 
 private struct PlanView: View {
-    let block: ViewBlockPlan
+    let block: ViewBlock.Plan
     var onToggle: (PlanRow) -> Void
     @Environment(\.theme) private var theme
     var body: some View {
@@ -159,7 +159,7 @@ private struct PlanRowView: View {
 }
 
 private struct ResourceRecView: View {
-    let block: ViewBlockResourceRec
+    let block: ViewBlock.ResourceRec
     var onOpen: (LearningResource) -> Void
     @Environment(\.theme) private var theme
     var body: some View {
