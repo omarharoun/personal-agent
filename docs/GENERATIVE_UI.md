@@ -1,13 +1,15 @@
 # Generative UI — the agent composes the view
 
-*Status: **design + prototype only.** This document specs a direction the user
-loves; no production app code has changed. The working, self-contained prototype
-lives at [`docs/genui/prototype.html`](genui/prototype.html) (open it in a
-browser); rendered stills are at
+*Status: **implemented in v2.6.0** (Android Compose + iOS SwiftUI) — this document
+is both the original spec and the shipped design. The pipeline lives in
+`shared/.../genui` (`ViewSpec`, `ViewSpecPrompts`, `ViewSpecParser`,
+`FactsCollector`, `DefaultView`, `GenerativeUiService`, `SuggestionChips`), with
+native renderers in `androidApp/.../ui/genui/ComposedViewUi.kt` and
+`iosApp/.../GenerativeUiView.swift`, wired into the chat surface on both platforms.
+The original self-contained prototype still lives at
+[`docs/genui/prototype.html`](genui/prototype.html); rendered stills are at
 [`docs/genui/still-week-pulse.png`](genui/still-week-pulse.png) and
-[`docs/genui/still-plan-and-learning.png`](genui/still-plan-and-learning.png).
-This is the plan for turning it into real Compose/SwiftUI against a user-owned
-Hermes.*
+[`docs/genui/still-plan-and-learning.png`](genui/still-plan-and-learning.png).*
 
 ![Week-pulse view composed on demand](genui/still-week-pulse.png)
 ![Evening plan + learning recommendation composed on demand](genui/still-plan-and-learning.png)

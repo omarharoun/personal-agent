@@ -11,11 +11,13 @@ a small server); the app is a thin, trusted client to it. **All memory and data
 live on your server. The app stores no sensitive user content** — only the
 connection config (URL, key) and a memory-scope key, sealed on-device.
 
-> **Status: v1 complete — all 5 phases, plus Phase 6 (Learning Guide).** Connect +
+> **Status: v1 complete — all 5 phases, Phase 6 (Learning Guide), plus v2.6.0
+> (generative UI + choosable accent color).** Connect +
 > streaming chat (Phase 1), notes + reminders (Phase 2), goals + crisis handling
-> (Phase 3), reflection (Phase 4), polish + production slim (Phase 5), and a
-> memory-grounded **Learning Guide** over your Hermes' web tools (Phase 6 — see
-> *What's new in v2.5.0*). The app is a thin Hermes client (the on-device ML stack
+> (Phase 3), reflection (Phase 4), polish + production slim (Phase 5), a
+> memory-grounded **Learning Guide** over your Hermes' web tools (Phase 6), and the
+> agent **composing native views on demand** + a user-choosable **accent color**
+> (v2.6.0 — see *What's new* below). The app is a thin Hermes client (the on-device ML stack
 > is retired — Hermes is the brain). A first-run **setup guide** walks you through
 > pointing it at your Hermes. See the per-phase notes in [`docs/`](docs/).
 >
@@ -33,6 +35,62 @@ connection config (URL, key) and a memory-scope key, sealed on-device.
 > **a human must review them before real users rely on them.** See
 > [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md) and the per-phase notes in
 > [`docs/PHASE0.md`](docs/PHASE0.md), [`docs/PHASE1.md`](docs/PHASE1.md).
+
+## What's new in v2.6.0 — Generative UI + choosable accent color
+
+Two connected additions, on **both** platforms.
+
+### 1. Generative UI — the agent composes the view (docs/[GENERATIVE_UI.md](docs/GENERATIVE_UI.md))
+
+Ask for a view ("how's my week?", "plan my evening", "what should I learn next?",
+"summarize my day") — or tap one of the fixed **suggestion chips** — and the agent
+composes a bespoke card inline in the chat, rendered from a small library of native
+primitives. It is **not** model-authored markup: the agent returns a constrained,
+validated **view spec** (the same structured-extraction → lenient-parse → native-
+render pattern the knowledge graph and learning recommender already ship), and the
+client renders it with components it owns. An unknown/invalid block is dropped —
+never rendered as text, never executed.
+
+- **Primitives** (`:shared/genui`): `prose-line`, `stat-grid`, `sparkline`,
+  `plan` (tickable), `resource-rec`; `week-pulse`/`day-recap` are compositions of
+  those. One `when`/`switch` over the sealed `ViewBlock` per platform (Compose /
+  SwiftUI), one composable/View per primitive.
+- **Honesty rule (non-negotiable).** Views show only real user data; the agent
+  never invents numbers. Facts are gathered from your own stores
+  (`TaskStore`/`ReminderService`/`LearningStore`/reflections/`ChatStore`) and the
+  prompt is grounded in them. After parse we **reconcile**: every stat value is
+  overwritten with the recomputed real count (unknown metric → dropped), sparkline
+  points come from the real series, a plan row survives only if its id resolves to
+  a real record (invented ids are dropped, never faked), and a resource-rec renders
+  only your real learning focus. All model text is treated as untrusted, inert data.
+- **Graceful degradation.** Parse fails but facts exist → a deterministic local
+  `defaultView` (built offline from real data); nothing to show → a plain prose
+  line. Never a broken card. Composition runs on an **isolated** `X-Hermes-Session-
+  Id` (`lifeagent-genui`) so it never pollutes the live conversation's context —
+  one more `complete()` call to your **own** Hermes, no new backend or trust
+  boundary. Taps route through the existing flows (tick → TaskStore/LearningStore,
+  "Start reading" → system browser + mark STARTED).
+
+### 2. Choosable accent color — no more forced green
+
+The fixed dark-green "Hermes Teal" identity is gone. The base canvas is now
+**neutral** (warm charcoal in dark, warm paper in light — *not* green-tinted), and
+you pick an **accent** in **Settings → Appearance** that recolors highlights /
+primary / active states in **both** modes.
+
+- **8 curated accents**, each with a dark- and light-mode variant so contrast holds
+  on both canvases: **Teal, Blue, Violet, Amber, Coral, Green, Rose, Slate**. The
+  list + hexes are a single shared source of truth (`:shared/appearance`), so
+  Android and iOS offer identical options. Default is a neutral **Blue** (not green).
+- **Live re-theme** — tap a swatch and the whole app recolors immediately, on top
+  of whichever Dark / Light / System mode is selected. The choice persists in an
+  encrypted `AppearanceStore` (sealed at rest like every other store). Every screen
+  already reads theme tokens, so nothing hard-codes teal anymore — the generative-UI
+  cards use the accent too.
+
+*No 🔒 posture change:* generative UI inherits chat's trust boundary and adds no new
+sensitive storage; the accent is a display preference. The three 🔒 gates
+(credential/session-key storage, crisis handling, trust boundary) are unchanged.
 
 ## What's new in v2.5.0 — Learning Guide (Phase 6)
 
