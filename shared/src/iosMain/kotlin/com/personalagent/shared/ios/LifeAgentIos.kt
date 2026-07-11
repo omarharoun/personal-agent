@@ -210,7 +210,7 @@ object LifeAgentIos {
     fun appearanceStore(crypto: SecretKeyProvider): AppearanceStore =
         AppearanceStore(enc(crypto, "appearance"))
 
-    /** The full curated accent list — Swift reads id/name/*Rgb off each option. */
+    /** The full curated accent list — Swift reads id, name and the rgb fields. */
     fun accentOptions(): List<AccentOption> = AccentPalette.OPTIONS
 
     fun accentById(id: String): AccentOption = AccentPalette.byId(id)
