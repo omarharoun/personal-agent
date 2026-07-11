@@ -160,6 +160,8 @@ fun AppScreen(
     container: AppContainer,
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    accentId: String,
+    onAccentChange: (String) -> Unit,
     onDisconnect: () -> Unit,
     pendingDestination: String? = null,
     onDestinationHandled: () -> Unit = {},
@@ -252,7 +254,7 @@ fun AppScreen(
                 ),
             )
             Surface.SETTINGS -> SubScreen("Settings", { backHome() }, snackbar) {
-                SettingsScreen(container, themeMode, onThemeModeChange, onDisconnect = onDisconnect)
+                SettingsScreen(container, themeMode, onThemeModeChange, accentId, onAccentChange, onDisconnect = onDisconnect)
             }
             Surface.SUPPORT -> SubScreen("Support", { backHome() }, snackbar) {
                 SafetyScreen(safetyVm, snackbar, onFindSupport = { surface = Surface.SUPPORT_RESOURCES })
@@ -534,6 +536,7 @@ private fun ConversationContent(
 
     var draft by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
     LaunchedEffect(messages.size, sending) {
         val count = messages.size + if (sending) 1 else 0
@@ -592,7 +595,18 @@ private fun ConversationContent(
                         ),
                         verticalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
-                        items(messages, key = { it.id }) { msg -> MessageRow(msg) }
+                        items(messages, key = { it.id }) { msg ->
+                            MessageRow(
+                                msg,
+                                onPlanToggle = { convoVm.togglePlanRow(it) },
+                                onResourceOpen = { resource ->
+                                    // Open the free-web link in the system browser +
+                                    // mark it STARTED through the real Learning store.
+                                    convoVm.markResourceStarted(resource.id)
+                                    runCatching { uriHandler.openUri(resource.url) }
+                                },
+                            )
+                        }
                         if (sending) item("typing") { TypingIndicator() }
                     }
                 }
@@ -610,6 +624,12 @@ private fun ConversationContent(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
+
+                // Fixed suggestion chips (shared curated copy) — tap to compose a view.
+                com.personalagent.android.ui.genui.SuggestionChipRow(
+                    onChip = { chip -> convoVm.sendChip(chip) },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                )
 
                 Composer(
                     draft = draft,
@@ -629,7 +649,11 @@ private fun ConversationContent(
 }
 
 @Composable
-private fun MessageRow(msg: Message) {
+private fun MessageRow(
+    msg: Message,
+    onPlanToggle: (com.personalagent.shared.genui.PlanRow) -> Unit = {},
+    onResourceOpen: (com.personalagent.shared.learning.LearningResource) -> Unit = {},
+) {
     when (msg.role) {
         Message.Role.USER -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
             Surface(
@@ -662,17 +686,28 @@ private fun MessageRow(msg: Message) {
             }
         }
 
-        // Assistant: full-width, no bubble, markdown-rendered, with save/copy actions
-        // so any document the agent writes can be copied or shared out of the app.
+        // Assistant: a composed native view, the "composing…" state, or markdown.
         Message.Role.ASSISTANT -> Column(Modifier.fillMaxWidth()) {
-            MarkdownText(
-                text = msg.text,
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            if (msg.text.isNotBlank()) {
-                Spacer(Modifier.height(2.dp))
-                MessageActions(msg.text)
+            when {
+                msg.composing -> com.personalagent.android.ui.genui.ComposingIndicator()
+                msg.view != null -> DisableSelection {
+                    com.personalagent.android.ui.genui.ComposedViewCard(
+                        view = msg.view,
+                        onPlanToggle = onPlanToggle,
+                        onResourceOpen = onResourceOpen,
+                    )
+                }
+                else -> {
+                    MarkdownText(
+                        text = msg.text,
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    if (msg.text.isNotBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                        MessageActions(msg.text)
+                    }
+                }
             }
         }
     }

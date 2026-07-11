@@ -13,80 +13,101 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.personalagent.shared.appearance.AccentOption
+import com.personalagent.shared.appearance.AccentPalette
 
 /**
- * Hermes-Teal theme — adapted from the Hermes Agent web dashboard so the Life
- * Agent reads as a natural extension of it (see [Color.kt] + ATTRIBUTION.md).
- * Dark ("Hermes Teal") is the default; a warm-paper light theme matches.
+ * Neutral base + user-chosen ACCENT theme. The canvas is neutral (charcoal in
+ * dark, warm paper in light — see [Color.kt]); the [AccentOption] the user picks
+ * in Settings recolors primary / active / highlight roles in BOTH modes. Nothing
+ * is force-green anymore. The signature Hermes *treatments* stay (small radii,
+ * uppercase wide-tracked display labels, roomy body leading).
  *
- * The signature Hermes treatments carried over: dark-teal canvas + warm-cream
- * text/accent, thin cream-tinted borders on cards, small radii (0.5rem), and
- * UPPERCASE wide-tracked "display" labels for headings/buttons (see [HermesText]).
+ * Both schemes are built at runtime from the accent, so changing the accent
+ * recolors every screen (all screens read `MaterialTheme.colorScheme.*`).
  */
-private val DarkColors = darkColorScheme(
-    primary = HermesCream,
-    onPrimary = HermesBackground,
-    primaryContainer = HermesMuted,
-    onPrimaryContainer = HermesCream,
-    secondary = HermesAccent,
-    onSecondary = HermesCream,
-    secondaryContainer = HermesAccent,
-    onSecondaryContainer = HermesCream,
-    tertiary = HermesEmerald,
-    onTertiary = HermesBackground,
-    background = HermesBackground,
-    onBackground = HermesCream,
-    surface = HermesCard,
-    onSurface = HermesCream,
-    surfaceVariant = HermesMuted,
-    onSurfaceVariant = HermesCreamDim,
-    surfaceContainerLowest = HermesBackground,
-    surfaceContainerLow = HermesCard,
-    surfaceContainer = HermesCard,
-    surfaceContainerHigh = HermesSecondary,
-    surfaceContainerHighest = HermesAccent,
-    error = HermesDestructive,
-    onError = Color(0xFFFFFFFF),
-    errorContainer = HermesDestructive.copy(alpha = 0.15f),
-    onErrorContainer = HermesDestructive,
-    outline = HermesBorder,
-    outlineVariant = HermesBorder,
-    inversePrimary = HermesAccent,
+
+private fun Long.toAccentColor(): Color = Color(0xFF000000L or (this and 0xFFFFFF))
+
+/** Mix [a] toward [b] by [r] (0 = all a, 1 = all b). Used for accent-tinted surfaces. */
+private fun blend(a: Color, b: Color, r: Float): Color = Color(
+    red = a.red + (b.red - a.red) * r,
+    green = a.green + (b.green - a.green) * r,
+    blue = a.blue + (b.blue - a.blue) * r,
+    alpha = 1f,
 )
 
-private val LightColors = lightColorScheme(
-    primary = TealPrimary,
-    onPrimary = OnTealPrimary,
-    primaryContainer = PaperAccent,
-    onPrimaryContainer = TealPrimary,
-    secondary = TealPrimary,
-    onSecondary = OnTealPrimary,
-    secondaryContainer = PaperAccent,
-    onSecondaryContainer = TealPrimary,
-    tertiary = TealEmerald,
-    onTertiary = PaperSurface,
-    background = PaperBackground,
-    onBackground = TealInk,
-    surface = PaperSurface,
-    onSurface = TealInk,
-    surfaceVariant = PaperMuted,
-    onSurfaceVariant = TealInkDim,
-    surfaceContainerLowest = PaperSurface,
-    surfaceContainerLow = PaperBackground,
-    surfaceContainer = PaperSurface,
-    surfaceContainerHigh = PaperMuted,
-    surfaceContainerHighest = PaperMuted,
-    error = HermesDestructive,
-    onError = Color(0xFFFFFFFF),
-    outline = PaperBorder,
-    outlineVariant = PaperBorder,
-)
+private fun darkScheme(accent: AccentOption) = run {
+    val a = accent.darkRgb.toAccentColor()
+    val onA = accent.onDarkRgb.toAccentColor()
+    darkColorScheme(
+        primary = a,
+        onPrimary = onA,
+        primaryContainer = blend(NeutralDarkCard, a, 0.24f),
+        onPrimaryContainer = NeutralDarkInk,
+        secondary = a,
+        onSecondary = onA,
+        secondaryContainer = blend(NeutralDarkSecondary, a, 0.26f),
+        onSecondaryContainer = NeutralDarkInk,
+        tertiary = a,
+        onTertiary = onA,
+        background = NeutralDarkBackground,
+        onBackground = NeutralDarkInk,
+        surface = NeutralDarkCard,
+        onSurface = NeutralDarkInk,
+        surfaceVariant = NeutralDarkMuted,
+        onSurfaceVariant = NeutralDarkInkDim,
+        surfaceContainerLowest = NeutralDarkBackground,
+        surfaceContainerLow = NeutralDarkCard,
+        surfaceContainer = NeutralDarkCard,
+        surfaceContainerHigh = NeutralDarkSecondary,
+        surfaceContainerHighest = NeutralDarkSecondary,
+        error = StatusDestructive,
+        onError = Color(0xFFFFFFFF),
+        errorContainer = StatusDestructive.copy(alpha = 0.15f),
+        onErrorContainer = StatusDestructive,
+        outline = NeutralDarkBorder,
+        outlineVariant = NeutralDarkBorder,
+        inversePrimary = a,
+    )
+}
 
-/** Persisted appearance preference. Dark is the default. */
+private fun lightScheme(accent: AccentOption) = run {
+    val a = accent.lightRgb.toAccentColor()
+    val onA = accent.onLightRgb.toAccentColor()
+    lightColorScheme(
+        primary = a,
+        onPrimary = onA,
+        primaryContainer = blend(NeutralLightMuted, a, 0.16f),
+        onPrimaryContainer = NeutralLightInk,
+        secondary = a,
+        onSecondary = onA,
+        secondaryContainer = blend(NeutralLightMuted, a, 0.14f),
+        onSecondaryContainer = NeutralLightInk,
+        tertiary = a,
+        onTertiary = onA,
+        background = NeutralLightBackground,
+        onBackground = NeutralLightInk,
+        surface = NeutralLightSurface,
+        onSurface = NeutralLightInk,
+        surfaceVariant = NeutralLightMuted,
+        onSurfaceVariant = NeutralLightInkDim,
+        surfaceContainerLowest = NeutralLightSurface,
+        surfaceContainerLow = NeutralLightBackground,
+        surfaceContainer = NeutralLightSurface,
+        surfaceContainerHigh = NeutralLightMuted,
+        surfaceContainerHighest = NeutralLightMuted,
+        error = StatusDestructive,
+        onError = Color(0xFFFFFFFF),
+        outline = NeutralLightBorder,
+        outlineVariant = NeutralLightBorder,
+    )
+}
+
+/** Persisted appearance preference. Dark is the default mode. */
 enum class ThemeMode { SYSTEM, DARK, LIGHT }
 
-// Hermes uses small radii (0.5rem = 8px default, xl = 12px). Cards/inputs read as
-// crisp, lightly-rounded panels rather than pill-soft Material defaults.
+// Small radii (0.5rem = 8px default, xl = 12px): crisp, lightly-rounded panels.
 private val HermesShapes = Shapes(
     extraSmall = RoundedCornerShape(4.dp),
     small = RoundedCornerShape(6.dp),
@@ -97,15 +118,14 @@ private val HermesShapes = Shapes(
 
 /**
  * The signature Hermes text treatments, reusable across screens.
- *  - [displayLabel]: UPPERCASE, wide letter-spacing, semi-bold — for section
- *    headers + nav, matching the web's `text-display` (uppercase + tracking).
+ *  - [displayLabel]: UPPERCASE, wide letter-spacing, semi-bold — section headers/nav.
  *  - [mono]: tabular monospace for technical/metadata readouts (versions, counts).
  */
 object HermesText {
     val displayLabel: TextStyle = TextStyle(
         fontWeight = FontWeight.SemiBold,
         fontSize = 13.sp,
-        letterSpacing = 2.2.sp, // ~0.17em tracking like the web display labels
+        letterSpacing = 2.2.sp,
         lineHeight = 16.sp,
     )
     val displayLarge: TextStyle = TextStyle(
@@ -122,8 +142,6 @@ object HermesText {
     )
 }
 
-// Roomier body leading for chat; button labels get the display treatment
-// (uppercase applied at call sites) with wide tracking + bold.
 private val HermesTypography: Typography
     @Composable get() {
         val base = MaterialTheme.typography
@@ -149,12 +167,14 @@ val CodeTextStyle: TextStyle
 
 @Composable
 fun PersonalAgentTheme(
-    // Dark ("Hermes Teal") by default — even when the system is light.
+    // Dark by default — even when the system is light.
     darkTheme: Boolean = true,
+    // The user-selected accent (neutral Blue by default; picked in Settings).
+    accent: AccentOption = AccentPalette.DEFAULT,
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = if (darkTheme) darkScheme(accent) else lightScheme(accent),
         typography = HermesTypography,
         shapes = HermesShapes,
         content = content,

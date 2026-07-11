@@ -3,47 +3,37 @@ package com.personalagent.android.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * Palette adapted from the Hermes Agent web dashboard's default "Hermes Teal"
- * (LENS_0) theme so the Life Agent feels like a natural extension of Hermes.
+ * NEUTRAL base palette. The app is no longer force-branded a fixed dark green
+ * ("Hermes Teal"): the canvases here are neutral — a warm charcoal in dark, warm
+ * paper in light — and the ACCENT the user picks in Settings (from the shared
+ * [com.personalagent.shared.appearance.AccentPalette]) recolors highlights /
+ * primary / active states on top, in BOTH modes. See [Theme.kt], which blends the
+ * chosen accent into these neutrals at runtime.
  *
- * Design tokens are adapted from the MIT-licensed Hermes Agent web frontend and
- * @nous-research/ui design system (© 2025 Nous Research) — see ATTRIBUTION.md.
- * The base tokens are `--background #041c1c` (dark teal) and `--midground #ffe6cb`
- * (warm cream, used for text + the primary accent); the surface/muted/border
- * values below are the resolved `color-mix(midground%, background)` blends from
- * the web `index.css`.
+ * Only [Theme.kt] references these; every screen uses `MaterialTheme.colorScheme.*`
+ * tokens, so switching the accent recolors everything with no per-screen changes.
  */
 
-// --- Dark: "Hermes Teal" (the default) --------------------------------------
-val HermesBackground = Color(0xFF041C1C) // --background
-val HermesCard = Color(0xFF0E2423)       // midground 4% over background (--color-card)
-val HermesSecondary = Color(0xFF132826)  // midground 6%
-val HermesMuted = Color(0xFF182C2A)      // midground 8% (--color-muted)
-val HermesAccent = Color(0xFF1D302E)     // midground 10% (--color-accent)
-val HermesCream = Color(0xFFFFE6CB)      // --midground (primary text + accent)
-// Secondary text: cream at ~80% blended over the dark canvas — kept bright enough
-// for WCAG-AA on #041C1C (the earlier #A79F8D was too muted / failed AA).
-val HermesCreamDim = Color(0xFFCDBFA8)
-// Borders/dividers: a visible warm line so cards read as distinct panels — a bit
-// brighter than the near-invisible earlier #2A3A36, but restrained for cards.
-val HermesBorder = Color(0xFF3C4C46)
-// A slightly darker field fill so inputs stand off the page background.
-val HermesField = Color(0xFF0A2321)
+// --- Dark: neutral warm-charcoal (NOT teal/green) ---------------------------
+val NeutralDarkBackground = Color(0xFF121415) // near-black warm charcoal
+val NeutralDarkCard = Color(0xFF1B1E20)       // cards / surfaces
+val NeutralDarkSecondary = Color(0xFF23272A)  // raised container
+val NeutralDarkMuted = Color(0xFF212528)      // muted surface-variant
+val NeutralDarkField = Color(0xFF161819)      // input fields, set off the bg
+val NeutralDarkInk = Color(0xFFECEAE4)         // primary text (warm near-white)
+val NeutralDarkInkDim = Color(0xFFA9ADAB)      // secondary text (WCAG-AA on the bg)
+val NeutralDarkBorder = Color(0xFF35393C)      // dividers / card borders
 
-// Semantic accents (verbatim from the web tokens).
-val HermesEmerald = Color(0xFF34D399)    // --series-output-token (positive accent)
-val HermesSuccess = Color(0xFF4ADE80)    // --color-success
-val HermesWarning = Color(0xFFFFBD38)    // --color-warning
-val HermesDestructive = Color(0xFFFB2C36) // --color-destructive
+// --- Light: neutral warm-paper (NOT green-tinted) ---------------------------
+val NeutralLightBackground = Color(0xFFF6F3EC) // warm paper
+val NeutralLightSurface = Color(0xFFFFFFFF)
+val NeutralLightMuted = Color(0xFFECE7DD)      // muted surface-variant
+val NeutralLightField = Color(0xFFFFFFFF)
+val NeutralLightInk = Color(0xFF1D1F20)        // primary text (near-black ink)
+val NeutralLightInkDim = Color(0xFF5D605F)     // secondary text
+val NeutralLightBorder = Color(0xFFDED8CC)     // dividers / card borders
 
-// --- Light: warm-paper counterpart (cohesive, teal-ink) ---------------------
-val PaperBackground = Color(0xFFF7F1E7)  // warm paper
-val PaperSurface = Color(0xFFFFFFFF)
-val PaperMuted = Color(0xFFEFE7D7)
-val PaperAccent = Color(0xFFEAF0EC)
-val TealPrimary = Color(0xFF0B3B37)      // deep teal (ink/primary on light)
-val OnTealPrimary = Color(0xFFFFF3E4)
-val TealInk = Color(0xFF0A2422)          // primary text on light
-val TealInkDim = Color(0xFF55635F)       // secondary text on light
-val PaperBorder = Color(0xFFDDD2BF)
-val TealEmerald = Color(0xFF0F9E74)
+// --- Semantic accents (mode-independent; NOT the user accent) ----------------
+val StatusSuccess = Color(0xFF4ADE80)
+val StatusWarning = Color(0xFFFFBD38)
+val StatusDestructive = Color(0xFFFB2C36)

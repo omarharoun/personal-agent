@@ -5,6 +5,7 @@ import com.personalagent.android.notification.AndroidReminderScheduler
 import com.personalagent.android.onboarding.AgeGateRepository
 import com.personalagent.android.onboarding.OnboardingRepository
 import com.personalagent.android.onboarding.SecuritySetupRepository
+import com.personalagent.shared.appearance.AppearanceStore
 import com.personalagent.shared.crypto.AndroidSecretKeyProvider
 import com.personalagent.shared.crypto.EncryptedKeyValueStorage
 import com.personalagent.shared.crypto.SecretKeyProvider
@@ -109,6 +110,13 @@ class AppContainer(context: Context) {
      * [com.personalagent.shared.hermes.LearningPrompts]). Sealed at rest.
      */
     val learningStore: LearningStore = LearningStore(encrypted("learning"))
+
+    /**
+     * The user's appearance choices — currently the selected accent color (from the
+     * shared curated [com.personalagent.shared.appearance.AccentPalette]). Sealed at
+     * rest like the rest; the accent recolors the whole app in dark and light.
+     */
+    val appearanceStore: AppearanceStore = AppearanceStore(encrypted("appearance"))
 
     // --- Hermes connection ----------------------------------------------------
 

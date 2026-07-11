@@ -74,6 +74,15 @@ class MainActivity : ComponentActivity() {
                 uiPrefs.edit().putString("theme_mode", mode.name).apply()
             }
 
+            // Accent color (neutral default). Persisted in the encrypted appearance
+            // store; held in state so picking one re-themes the whole app live.
+            var accentId by remember { mutableStateOf(container.appearanceStore.accentId()) }
+            val accent = remember(accentId) { com.personalagent.shared.appearance.AccentPalette.byId(accentId) }
+            val onAccentChange: (String) -> Unit = { id ->
+                accentId = id
+                container.appearanceStore.setAccentId(id)
+            }
+
             // Edge-to-edge draws behind the transparent system bars, so the bar
             // icons must contrast the ACTIVE in-app theme (not the OS dark setting):
             // dark icons on the light theme, light icons on the dark theme.
@@ -83,7 +92,7 @@ class MainActivity : ComponentActivity() {
                 controller.isAppearanceLightNavigationBars = !dark
             }
 
-            PersonalAgentTheme(darkTheme = dark) {
+            PersonalAgentTheme(darkTheme = dark, accent = accent) {
                 // Paint the whole window with the ACTIVE scheme's background so every
                 // screen (incl. the Connect screen, which has no Scaffold) is always
                 // self-consistent — never Compose scheme colors on the XML window
@@ -125,6 +134,7 @@ class MainActivity : ComponentActivity() {
                             viewModel(factory = SafetyViewModel.Factory(container))
                         AppScreen(
                             vm, safetyVm, container, themeMode, onThemeModeChange,
+                            accentId = accentId, onAccentChange = onAccentChange,
                             onDisconnect = {
                                 // 🔒 Trust boundary: forget the configured backend (keep the
                                 // memory-scope key so reconnecting lands in the same memory).

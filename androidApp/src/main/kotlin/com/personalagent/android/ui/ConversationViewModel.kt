@@ -35,6 +35,10 @@ data class Message(
     val text: String,
     /** Epoch millis the line was recorded (0 for legacy/unstamped). */
     val time: Long = 0L,
+    /** Generative-UI: a natively-rendered composed view carried by this assistant turn. */
+    val view: com.personalagent.shared.genui.ComposedView? = null,
+    /** Generative-UI: true while the agent is composing this turn's view. */
+    val composing: Boolean = false,
 ) {
     enum class Role { USER, ASSISTANT, SYSTEM }
 }
@@ -84,7 +88,14 @@ class ConversationViewModel(
     // be reviewed by a crisis-response expert before real users rely on it.
     private val crisisRecognizer: CrisisRecognizer,
     private val crisisResponder: CrisisResponder,
+    // Generative UI: the stores the honest facts are gathered from, + tap-action sinks.
+    private val taskStore: com.personalagent.shared.tasks.TaskStore,
+    private val localStore: com.personalagent.shared.store.LocalStore,
+    private val learningStore: com.personalagent.shared.learning.LearningStore,
 ) : ViewModel() {
+
+    /** Composition orchestrator on an isolated session id (never disturbs live chat). */
+    private val genUi = com.personalagent.shared.genui.GenerativeUiService(hermes)
 
     /**
      * 🔒 A supportive [CrisisResponse] to surface (consent-first), or null. Set
@@ -246,6 +257,14 @@ class ConversationViewModel(
             _activeCrisis.value = crisisResponder.respond(assessment)
         }
 
+        // Generative UI: a turn that reads like a request for a view ("how's my
+        // week", "plan my evening", "summarize my day") composes a native card
+        // instead of a plain streamed reply. Ordinary chat flows through untouched.
+        if (com.personalagent.shared.genui.SuggestionChips.preferredViewFor(text) != null) {
+            composeInto(target, text)
+            return
+        }
+
         // Snapshot the wire history (includes the user turn just added) BEFORE the
         // empty assistant placeholder, so we don't send a blank assistant message.
         // When the user is asking to schedule/automate something, prepend a single
@@ -287,6 +306,131 @@ class ConversationViewModel(
                 // Save the completed (or errored) assistant turn so the whole
                 // exchange is on disk before the app can be killed.
                 persist(target)
+            }
+        }
+    }
+
+    // --- Generative UI --------------------------------------------------------
+
+    /** Tap on a fixed suggestion chip → echo its canonical prompt, then compose. */
+    fun sendChip(chip: com.personalagent.shared.genui.SuggestionChip) {
+        if (_sending.value) return
+        val target = _currentId.value
+        appendTo(target, Message.Role.USER, chip.prompt)
+        persist(target)
+        composeInto(target, chip.prompt)
+    }
+
+    /**
+     * Gather the user's REAL local facts, ask the agent to compose a view on the
+     * isolated genui session id, reconcile every number/id against the facts, and
+     * attach the resulting [com.personalagent.shared.genui.ComposedView] to a fresh
+     * assistant turn. Shows the "composing…" state meanwhile; degrades to an honest
+     * local view or a plain prose line (never a broken card).
+     */
+    private fun composeInto(target: Long, ask: String) {
+        val assistantId = appendComposing(target)
+        viewModelScope.launch {
+            _sending.value = true
+            try {
+                val now = SystemClock.nowMillis()
+                val facts = com.personalagent.shared.genui.FactsCollector.build(
+                    now = now,
+                    tasks = taskStore.all(),
+                    reminders = localStore.allReminders(),
+                    planItems = localStore.allPlanItems(),
+                    learning = learningStore.state(),
+                    conversations = chatStore.all(),
+                )
+                when (val result = genUi.compose(ask, facts)) {
+                    is com.personalagent.shared.genui.ComposeResult.Composed ->
+                        setView(target, assistantId, result.view)
+                    is com.personalagent.shared.genui.ComposeResult.Prose ->
+                        setComposedText(target, assistantId, result.text)
+                }
+            } catch (e: Throwable) {
+                setComposedText(target, assistantId, "I couldn't compose that view just now.")
+            } finally {
+                _sending.value = false
+                persist(target)
+            }
+        }
+    }
+
+    /** Toggle a plan row's done state through the REAL store it came from. */
+    fun togglePlanRow(row: com.personalagent.shared.genui.PlanRow) {
+        val now = SystemClock.nowMillis()
+        viewModelScope.launch {
+            when (row.source) {
+                com.personalagent.shared.genui.PlanRow.SOURCE_TASK ->
+                    taskStore.setDone(row.id, !row.done, now)
+                com.personalagent.shared.genui.PlanRow.SOURCE_PLAN ->
+                    localStore.allPlanItems().firstOrNull { it.id == row.id }
+                        ?.let { localStore.upsertPlanItem(it.copy(done = !it.done)) }
+                com.personalagent.shared.genui.PlanRow.SOURCE_LEARNING ->
+                    learningStore.setStatus(
+                        row.id,
+                        if (row.done) com.personalagent.shared.learning.LearningStatus.STARTED
+                        else com.personalagent.shared.learning.LearningStatus.FINISHED,
+                        now,
+                    )
+                else -> Unit // reminders are time-based; no "done" toggle
+            }
+            flipRowDone(row.id)
+        }
+    }
+
+    /** "Start reading" a recommended resource → mark it STARTED (UI opens the URL). */
+    fun markResourceStarted(resourceId: String) {
+        learningStore.setStatus(resourceId, com.personalagent.shared.learning.LearningStatus.STARTED, SystemClock.nowMillis())
+    }
+
+    private fun appendComposing(sessionId: Long): Long {
+        val mid = nextMessageId++
+        val now = SystemClock.nowMillis()
+        _sessions.update { list ->
+            list.map { sess ->
+                if (sess.id != sessionId) sess
+                else sess.copy(messages = sess.messages + Message(mid, Message.Role.ASSISTANT, "", now, composing = true), updatedAt = now)
+            }
+        }
+        return mid
+    }
+
+    private fun setView(sessionId: Long, messageId: Long, view: com.personalagent.shared.genui.ComposedView) {
+        _sessions.update { list ->
+            list.map { sess ->
+                if (sess.id != sessionId) sess
+                else sess.copy(messages = sess.messages.map { m ->
+                    if (m.id == messageId) m.copy(view = view, composing = false, text = view.toPlainSummary()) else m
+                })
+            }
+        }
+    }
+
+    private fun setComposedText(sessionId: Long, messageId: Long, text: String) {
+        _sessions.update { list ->
+            list.map { sess ->
+                if (sess.id != sessionId) sess
+                else sess.copy(messages = sess.messages.map { m ->
+                    if (m.id == messageId) m.copy(text = text, composing = false, view = null) else m
+                })
+            }
+        }
+    }
+
+    /** Flip the rendered done-state of a plan row (so the tick reflects immediately). */
+    private fun flipRowDone(rowId: String) {
+        _sessions.update { list ->
+            list.map { sess ->
+                sess.copy(messages = sess.messages.map { m ->
+                    val v = m.view ?: return@map m
+                    val blocks = v.blocks.map { b ->
+                        if (b !is com.personalagent.shared.genui.ViewBlock.Plan) b
+                        else b.copy(items = b.items.map { it -> if (it.id == rowId) it.copy(done = !it.done) else it })
+                    }
+                    m.copy(view = v.copy(blocks = blocks))
+                })
             }
         }
     }
@@ -378,6 +522,9 @@ class ConversationViewModel(
                 chatStore = container.chatStore,
                 crisisRecognizer = container.crisisRecognizer,
                 crisisResponder = container.crisisResponder,
+                taskStore = container.taskStore,
+                localStore = container.store,
+                learningStore = container.learningStore,
             ) as T
         }
     }
@@ -405,6 +552,29 @@ private fun StoredConversation.toSession(): ChatSession = ChatSession(
     fromHermes = fromHermes,
     hydrated = true,
 )
+
+/**
+ * A plain-text summary of a composed view, stored as the assistant turn's [text]
+ * so chat history (which persists text only) still shows something truthful after
+ * a relaunch — the rich card itself is ephemeral, like the prototype.
+ */
+private fun com.personalagent.shared.genui.ComposedView.toPlainSummary(): String = buildString {
+    title?.let { append(it).append('\n') }
+    blocks.forEach { b ->
+        when (b) {
+            is com.personalagent.shared.genui.ViewBlock.ProseLine -> append(b.text).append('\n')
+            is com.personalagent.shared.genui.ViewBlock.StatGrid ->
+                append(b.stats.joinToString("  ·  ") { "${it.value} ${it.label}" }).append('\n')
+            is com.personalagent.shared.genui.ViewBlock.Plan -> {
+                append(b.heading).append('\n')
+                b.items.forEach { append(if (it.done) "  ✓ " else "  • ").append(it.title).append('\n') }
+            }
+            is com.personalagent.shared.genui.ViewBlock.ResourceRec ->
+                append("→ ${b.resource.title}\n")
+            is com.personalagent.shared.genui.ViewBlock.Sparkline -> Unit
+        }
+    }
+}.trim().ifBlank { "(composed view)" }
 
 private fun Message.Role.wire(): String = when (this) {
     Message.Role.USER -> "user"
