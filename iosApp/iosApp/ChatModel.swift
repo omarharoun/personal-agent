@@ -15,6 +15,18 @@ final class ChatModel: ObservableObject {
         let role: Role
         var text: String
         let time: Int64
+        // Generative UI: an assistant turn may carry a composed native view, or be
+        // in the transient "composing…" state.
+        var composing: Bool = false
+        var view: ComposedView? = nil
+        /// Bumps whenever [view] changes, so Equatable/diffing works without the
+        /// (non-Swift-Equatable) Kotlin ComposedView participating in ==.
+        var viewToken: Int = 0
+
+        static func == (l: UIMessage, r: UIMessage) -> Bool {
+            l.id == r.id && l.role == r.role && l.text == r.text &&
+                l.time == r.time && l.composing == r.composing && l.viewToken == r.viewToken
+        }
     }
 
     struct UISession: Identifiable {
@@ -107,6 +119,13 @@ final class ChatModel: ObservableObject {
         activeCrisis = LifeAgentIos.shared.crisisResponseFor(
             recognizer: env.crisisRecognizer, responder: env.crisisResponder, text: text)
 
+        // Generative UI: a turn that reads like a view request composes a native
+        // card instead of a plain streamed reply. Ordinary chat flows through.
+        if SuggestionChips.shared.preferredViewFor(text: text) != nil {
+            composeInto(target, ask: text)
+            return
+        }
+
         var wire: [HermesWireMessage] = []
         if LifePrompts.shared.looksLikeScheduling(text: text) {
             wire.append(LifeAgentIos.shared.wireMessage(role: "system",
@@ -136,6 +155,159 @@ final class ChatModel: ObservableObject {
             sending = false
             persist(target)
         }
+    }
+
+    // MARK: - Generative UI
+
+    /// Tap on a fixed suggestion chip → echo its canonical prompt, then compose.
+    func sendChip(_ chip: SuggestionChip) {
+        guard !sending else { return }
+        let target = currentChatId
+        _ = appendTo(target, .user, chip.prompt)
+        persist(target)
+        composeInto(target, ask: chip.prompt)
+    }
+
+    /// Gather REAL local facts + the user's own Hermes, compose a validated view,
+    /// and attach it to a fresh assistant turn. Shows the "composing…" state and
+    /// degrades to an honest local view / plain prose (never a broken card).
+    private func composeInto(_ target: Int64, ask: String) {
+        guard let client else {
+            setComposedText(target, appendComposing(target), "Connect your Hermes to compose views.")
+            return
+        }
+        let assistantId = appendComposing(target)
+        sending = true
+        _Concurrency.Task {
+            do {
+                try await LifeAgentIos.shared.composeView(
+                    client: client,
+                    taskStore: env.taskStore,
+                    learningStore: env.learningStore,
+                    chatStore: env.chatStore,
+                    reminders: env.reminderHistory.all(),
+                    ask: ask,
+                    onView: { view in
+                        _Concurrency.Task { @MainActor in self.setView(target, assistantId, view) }
+                    },
+                    onProse: { prose in
+                        _Concurrency.Task { @MainActor in self.setComposedText(target, assistantId, prose) }
+                    }
+                )
+            } catch {
+                setComposedText(target, assistantId, "I couldn't compose that view just now.")
+            }
+            sending = false
+            persist(target)
+        }
+    }
+
+    /// Toggle a plan row through the REAL store it came from + reflect it live.
+    /// `source` is a plain string; enum handling stays on the Kotlin side.
+    func togglePlanRow(_ row: PlanRow) {
+        switch row.source {
+        case "task":
+            env.taskStore.setDone(id: row.id, done: !row.done,
+                                  nowMillis: LifeAgentIos.shared.nowMillis())
+        case "learning":
+            LifeAgentIos.shared.setLearningResourceDone(store: env.learningStore,
+                                                        resourceId: row.id, done: !row.done)
+        default:
+            break // reminders/plan-items are not toggled on iOS
+        }
+        flipRowDone(row.id)
+    }
+
+    /// "Start reading" a resource → mark STARTED (the view opens the URL).
+    func markResourceStarted(_ resourceId: String) {
+        LifeAgentIos.shared.setLearningResourceStarted(store: env.learningStore, resourceId: resourceId)
+    }
+
+    @discardableResult
+    private func appendComposing(_ sessionId: Int64) -> Int64 {
+        let mid = nextMessageId; nextMessageId += 1
+        let now = LifeAgentIos.shared.nowMillis()
+        sessions = sessions.map { sess in
+            guard sess.id == sessionId else { return sess }
+            var s = sess
+            s.messages.append(UIMessage(id: mid, role: .assistant, text: "", time: now, composing: true))
+            s.updatedAt = now
+            return s
+        }
+        return mid
+    }
+
+    private func setView(_ sessionId: Int64, _ messageId: Int64, _ view: ComposedView) {
+        sessions = sessions.map { sess in
+            guard sess.id == sessionId else { return sess }
+            var s = sess
+            s.messages = s.messages.map { m in
+                guard m.id == messageId else { return m }
+                var out = m
+                out.composing = false
+                out.view = view
+                out.text = Self.plainSummary(view)
+                out.viewToken += 1
+                return out
+            }
+            return s
+        }
+    }
+
+    private func setComposedText(_ sessionId: Int64, _ messageId: Int64, _ text: String) {
+        sessions = sessions.map { sess in
+            guard sess.id == sessionId else { return sess }
+            var s = sess
+            s.messages = s.messages.map { m in
+                guard m.id == messageId else { return m }
+                var out = m; out.composing = false; out.view = nil; out.text = text; out.viewToken += 1
+                return out
+            }
+            return s
+        }
+    }
+
+    private func flipRowDone(_ rowId: String) {
+        sessions = sessions.map { sess in
+            var s = sess
+            s.messages = s.messages.map { m in
+                guard let v = m.view else { return m }
+                let newBlocks: [ViewBlock] = v.blocks.map { b in
+                    guard let plan = b as? ViewBlockPlan else { return b }
+                    let items = plan.items.map { it -> PlanRow in
+                        it.id == rowId
+                            ? PlanRow(id: it.id, title: it.title, time: it.time, note: it.note,
+                                      source: it.source, sourceId: it.sourceId, done: !it.done,
+                                      actionable: it.actionable)
+                            : it
+                    }
+                    return ViewBlockPlan(heading: plan.heading, meta: plan.meta, items: items)
+                }
+                var out = m
+                out.view = ComposedView(view: v.view, title: v.title, blocks: newBlocks, provenance: v.provenance)
+                out.viewToken += 1
+                return out
+            }
+            return s
+        }
+    }
+
+    private static func plainSummary(_ view: ComposedView) -> String {
+        var out = ""
+        if let t = view.title { out += t + "\n" }
+        for b in view.blocks {
+            if let p = b as? ViewBlockProseLine { out += p.text + "\n" }
+            else if let g = b as? ViewBlockStatGrid {
+                out += g.stats.map { "\($0.value) \($0.label)" }.joined(separator: "  ·  ") + "\n"
+            } else if let plan = b as? ViewBlockPlan {
+                out += plan.heading + "\n"
+                for it in plan.items { out += (it.done ? "  ✓ " : "  • ") + it.title + "\n" }
+            } else if let rec = b as? ViewBlockResourceRec {
+                out += "→ " + rec.resource.title + "\n"
+            }
+        }
+        let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "(composed view)" : trimmed
     }
 
     // MARK: - Mutation helpers

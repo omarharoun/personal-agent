@@ -8,6 +8,7 @@ import Shared
 struct ChatView: View {
     @ObservedObject var model: ChatModel
     @Environment(\.theme) private var theme
+    @Environment(\.openURL) private var openURL
     var onOpenDrawer: () -> Void
 
     @State private var draft = ""
@@ -22,6 +23,8 @@ struct ChatView: View {
                         SupportCard(response: crisis) { model.dismissCrisis() }
                             .padding(.horizontal, 16)
                     }
+                    // Fixed suggestion chips (shared curated copy) — tap to compose a view.
+                    SuggestionChipRow { chip in model.sendChip(chip) }
                     Composer(draft: $draft, sending: model.sending,
                              onSend: { text in model.send(text); draft = "" },
                              onVoiceFinal: { spoken in model.send(spoken) },
@@ -58,8 +61,19 @@ struct ChatView: View {
                     if model.messages.isEmpty {
                         EmptyChatState { model.send($0) }.padding(.top, 40)
                     } else {
-                        ForEach(model.messages) { MessageRow(msg: $0) }
-                        if model.sending { TypingIndicator().id("typing") }
+                        ForEach(model.messages) { msg in
+                            MessageRow(
+                                msg: msg,
+                                onPlanToggle: { model.togglePlanRow($0) },
+                                onResourceOpen: { res in
+                                    model.markResourceStarted(res.id)
+                                    if let url = URL(string: res.url) { openURL(url) }
+                                }
+                            )
+                        }
+                        if model.sending && !(model.messages.last?.composing ?? false) {
+                            TypingIndicator().id("typing")
+                        }
                     }
                 }
                 .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 96)
@@ -73,6 +87,8 @@ struct ChatView: View {
 
 private struct MessageRow: View {
     let msg: ChatModel.UIMessage
+    var onPlanToggle: (PlanRow) -> Void = { _ in }
+    var onResourceOpen: (LearningResource) -> Void = { _ in }
     @Environment(\.theme) private var theme
 
     var body: some View {
@@ -97,10 +113,16 @@ private struct MessageRow: View {
                 Spacer()
             }
         case .assistant:
-            VStack(alignment: .leading, spacing: 2) {
-                MarkdownText(text: msg.text, color: theme.onBackground)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if !msg.text.isEmpty { MessageActions(text: msg.text) }
+            if msg.composing {
+                ComposingIndicator()
+            } else if let view = msg.view {
+                ComposedViewCard(view: view, onPlanToggle: onPlanToggle, onResourceOpen: onResourceOpen)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    MarkdownText(text: msg.text, color: theme.onBackground)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if !msg.text.isEmpty { MessageActions(text: msg.text) }
+                }
             }
         }
     }

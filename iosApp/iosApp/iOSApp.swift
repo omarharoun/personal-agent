@@ -1,5 +1,6 @@
 import SwiftUI
 import UserNotifications
+import Shared
 
 // App entry — the iOS Hermes Life Agent client at feature parity with Android,
 // built as SwiftUI over the shared Kotlin Multiplatform module (`Shared`).
@@ -18,20 +19,22 @@ struct iOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ThemedRoot(themeMode: themeMode)
+            ThemedRoot(themeMode: themeMode, accent: env.accentOption)
                 .environmentObject(env)
         }
     }
 }
 
-/// Resolves the active theme (respecting System) and paints the whole window with
-/// its background so every screen is self-consistent, then hosts the root gate.
+/// Resolves the active theme (respecting System + the chosen accent) and paints the
+/// whole window with its background so every screen is self-consistent, then hosts
+/// the root gate.
 private struct ThemedRoot: View {
     let themeMode: ThemeMode
+    let accent: AccentOption
     @Environment(\.colorScheme) private var systemScheme
 
     var body: some View {
-        let theme = HermesTheme.make(themeMode, system: systemScheme)
+        let theme = HermesTheme.make(themeMode, system: systemScheme, accent: accent)
         RootView()
             .environment(\.theme, theme)
             .tint(theme.primary)

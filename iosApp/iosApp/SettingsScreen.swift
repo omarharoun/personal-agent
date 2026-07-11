@@ -35,6 +35,7 @@ struct SettingsView: View {
                 Divider().background(theme.outline)
 
                 section("Appearance") {
+                    Text("Mode").font(.caption).foregroundColor(theme.onSurfaceVariant).padding(.top, 2)
                     HStack(spacing: 8) {
                         ForEach(ThemeMode.allCases) { mode in
                             Button { themeModeRaw = mode.rawValue } label: {
@@ -46,6 +47,11 @@ struct SettingsView: View {
                             }
                         }
                     }
+
+                    Text("Accent color").font(.caption).foregroundColor(theme.onSurfaceVariant).padding(.top, 12)
+                    Text("Applies to highlights and active states, in both light and dark.")
+                        .font(.caption2).foregroundColor(theme.onSurfaceVariant)
+                    AccentSwatches()
                 }
 
                 Divider().background(theme.outline)
@@ -63,5 +69,43 @@ struct SettingsView: View {
             Text(title).font(.headline).foregroundColor(theme.onBackground)
             content()
         }
+    }
+}
+
+/// Tappable accent-color swatches (shared curated list). Selecting one re-themes
+/// the whole app live via `env.setAccent`.
+private struct AccentSwatches: View {
+    @EnvironmentObject var env: AppEnvironment
+    @Environment(\.theme) private var theme
+
+    private let columns = [GridItem(.adaptive(minimum: 44), spacing: 14)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+            ForEach(LifeAgentIos.shared.accentOptions(), id: \.id) { opt in
+                let rgb = UInt32(truncatingIfNeeded: theme.isDark ? opt.darkRgb : opt.lightRgb) & 0xFFFFFF
+                let onRgb = UInt32(truncatingIfNeeded: theme.isDark ? opt.onDarkRgb : opt.onLightRgb) & 0xFFFFFF
+                let selected = opt.id == env.accentId
+                Button { env.setAccent(opt.id) } label: {
+                    Circle()
+                        .fill(Color(hex: rgb))
+                        .frame(width: 40, height: 40)
+                        .overlay(
+                            Circle().stroke(selected ? theme.onBackground : theme.outline,
+                                            lineWidth: selected ? 3 : 1)
+                        )
+                        .overlay(
+                            Group {
+                                if selected {
+                                    Circle().fill(Color(hex: onRgb)).frame(width: 10, height: 10)
+                                }
+                            }
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(opt.name + (selected ? ", selected" : ""))
+            }
+        }
+        .padding(.top, 8)
     }
 }

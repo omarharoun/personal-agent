@@ -1,11 +1,13 @@
-// Theme.swift — the Hermes-Teal (dark) / warm-paper (light) palette, ported
-// verbatim from the Android app's `ui/theme/Color.kt` + `Theme.kt` so the iOS
-// Life Agent reads as the same product. Dark ("Hermes Teal") is the default.
+// Theme.swift — NEUTRAL base + user-chosen ACCENT (mirrors the Android theme).
+// The canvas is neutral (warm charcoal in dark, warm paper in light — NOT green);
+// the accent the user picks in Settings (from the shared AccentPalette) recolors
+// primary / active / highlight roles in BOTH modes. Nothing is force-green anymore.
 //
 // Design tokens adapted from the MIT-licensed Hermes Agent web frontend
 // (© 2025 Nous Research) — see ATTRIBUTION.md.
 
 import SwiftUI
+import Shared
 
 // MARK: - Appearance preference (persisted; dark is the default)
 
@@ -21,7 +23,7 @@ enum ThemeMode: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Color(hex:)
+// MARK: - Color(hex:) + blend
 
 extension Color {
     init(hex: UInt32) {
@@ -32,6 +34,16 @@ extension Color {
             blue: Double(hex & 0xFF) / 255.0,
             opacity: 1
         )
+    }
+
+    /// Mix two RGB hexes by ratio r (0 = a, 1 = b) — for accent-tinted surfaces.
+    static func blend(_ a: UInt32, _ b: UInt32, _ r: Double) -> Color {
+        func mix(_ shift: UInt32) -> Double {
+            let av = Double((a >> shift) & 0xFF)
+            let bv = Double((b >> shift) & 0xFF)
+            return (av + (bv - av) * r) / 255.0
+        }
+        return Color(.sRGB, red: mix(16), green: mix(8), blue: mix(0), opacity: 1)
     }
 }
 
@@ -58,55 +70,92 @@ struct HermesTheme {
     let onErrorContainer: Color
     let outline: Color
 
+    // Neutral base hexes (no green identity), matching Android's Color.kt.
+    private static let darkBg: UInt32 = 0x121415
+    private static let darkSurface: UInt32 = 0x1B1E20
+    private static let darkMuted: UInt32 = 0x212528
+    private static let darkSecondary: UInt32 = 0x23272A
+    private static let lightMuted: UInt32 = 0xECE7DD
+
+    /// Build the active theme from the mode + the user's accent (from Shared).
+    static func make(_ mode: ThemeMode, system: ColorScheme, accent: AccentOption) -> HermesTheme {
+        let isDark = (mode == .dark) || (mode == .system && system == .dark)
+        return isDark ? dark(accent) : light(accent)
+    }
+
+    private static func dark(_ accent: AccentOption) -> HermesTheme {
+        let a = UInt32(truncatingIfNeeded: accent.darkRgb) & 0xFFFFFF
+        let onA = UInt32(truncatingIfNeeded: accent.onDarkRgb) & 0xFFFFFF
+        return HermesTheme(
+            isDark: true,
+            background: Color(hex: darkBg),
+            onBackground: Color(hex: 0xECEAE4),
+            surface: Color(hex: darkSurface),
+            onSurface: Color(hex: 0xECEAE4),
+            surfaceVariant: Color(hex: darkMuted),
+            onSurfaceVariant: Color(hex: 0xA9ADAB),
+            secondaryContainer: Color.blend(darkSecondary, a, 0.26),
+            onSecondaryContainer: Color(hex: 0xECEAE4),
+            primary: Color(hex: a),
+            onPrimary: Color(hex: onA),
+            tertiary: Color(hex: a),
+            onTertiary: Color(hex: onA),
+            error: Color(hex: 0xFB2C36),
+            onError: .white,
+            errorContainer: Color(hex: 0xFB2C36).opacity(0.15),
+            onErrorContainer: Color(hex: 0xFB2C36),
+            outline: Color(hex: 0x35393C)
+        )
+    }
+
+    private static func light(_ accent: AccentOption) -> HermesTheme {
+        let a = UInt32(truncatingIfNeeded: accent.lightRgb) & 0xFFFFFF
+        let onA = UInt32(truncatingIfNeeded: accent.onLightRgb) & 0xFFFFFF
+        return HermesTheme(
+            isDark: false,
+            background: Color(hex: 0xF6F3EC),
+            onBackground: Color(hex: 0x1D1F20),
+            surface: Color(hex: 0xFFFFFF),
+            onSurface: Color(hex: 0x1D1F20),
+            surfaceVariant: Color(hex: lightMuted),
+            onSurfaceVariant: Color(hex: 0x5D605F),
+            secondaryContainer: Color.blend(lightMuted, a, 0.14),
+            onSecondaryContainer: Color(hex: 0x1D1F20),
+            primary: Color(hex: a),
+            onPrimary: Color(hex: onA),
+            tertiary: Color(hex: a),
+            onTertiary: Color(hex: onA),
+            error: Color(hex: 0xFB2C36),
+            onError: .white,
+            errorContainer: Color(hex: 0xFB2C36).opacity(0.12),
+            onErrorContainer: Color(hex: 0xFB2C36),
+            outline: Color(hex: 0xDED8CC)
+        )
+    }
+
+    /// A neutral default theme for the environment default value (before the accent
+    /// loads from the store) — the shared default accent (Blue), inline so it needs
+    /// no Kotlin-object access.
     static let dark = HermesTheme(
         isDark: true,
-        background: Color(hex: 0x041C1C),
-        onBackground: Color(hex: 0xFFE6CB),
-        surface: Color(hex: 0x0E2423),
-        onSurface: Color(hex: 0xFFE6CB),
-        surfaceVariant: Color(hex: 0x182C2A),
-        onSurfaceVariant: Color(hex: 0xCDBFA8),
-        secondaryContainer: Color(hex: 0x1D302E),
-        onSecondaryContainer: Color(hex: 0xFFE6CB),
-        primary: Color(hex: 0xFFE6CB),
-        onPrimary: Color(hex: 0x041C1C),
-        tertiary: Color(hex: 0x34D399),
-        onTertiary: Color(hex: 0x041C1C),
+        background: Color(hex: darkBg),
+        onBackground: Color(hex: 0xECEAE4),
+        surface: Color(hex: darkSurface),
+        onSurface: Color(hex: 0xECEAE4),
+        surfaceVariant: Color(hex: darkMuted),
+        onSurfaceVariant: Color(hex: 0xA9ADAB),
+        secondaryContainer: Color.blend(darkSecondary, 0x60A5FA, 0.26),
+        onSecondaryContainer: Color(hex: 0xECEAE4),
+        primary: Color(hex: 0x60A5FA),
+        onPrimary: Color(hex: 0x0A1A2F),
+        tertiary: Color(hex: 0x60A5FA),
+        onTertiary: Color(hex: 0x0A1A2F),
         error: Color(hex: 0xFB2C36),
         onError: .white,
         errorContainer: Color(hex: 0xFB2C36).opacity(0.15),
         onErrorContainer: Color(hex: 0xFB2C36),
-        outline: Color(hex: 0x3C4C46)
+        outline: Color(hex: 0x35393C)
     )
-
-    static let light = HermesTheme(
-        isDark: false,
-        background: Color(hex: 0xF7F1E7),
-        onBackground: Color(hex: 0x0A2422),
-        surface: Color(hex: 0xFFFFFF),
-        onSurface: Color(hex: 0x0A2422),
-        surfaceVariant: Color(hex: 0xEFE7D7),
-        onSurfaceVariant: Color(hex: 0x55635F),
-        secondaryContainer: Color(hex: 0xEAF0EC),
-        onSecondaryContainer: Color(hex: 0x0B3B37),
-        primary: Color(hex: 0x0B3B37),
-        onPrimary: Color(hex: 0xFFF3E4),
-        tertiary: Color(hex: 0x0F9E74),
-        onTertiary: Color(hex: 0xFFFFFF),
-        error: Color(hex: 0xFB2C36),
-        onError: .white,
-        errorContainer: Color(hex: 0xFB2C36).opacity(0.12),
-        onErrorContainer: Color(hex: 0xFB2C36),
-        outline: Color(hex: 0xDDD2BF)
-    )
-
-    static func make(_ mode: ThemeMode, system: ColorScheme) -> HermesTheme {
-        switch mode {
-        case .dark: return .dark
-        case .light: return .light
-        case .system: return system == .dark ? .dark : .light
-        }
-    }
 }
 
 // MARK: - Environment plumbing
@@ -125,7 +174,6 @@ extension EnvironmentValues {
 // MARK: - Signature Hermes text treatments (uppercase, wide-tracked "display")
 
 extension Text {
-    /// UPPERCASE, wide letter-spacing, semibold — section headers + nav labels.
     func hermesDisplayLabel(size: CGFloat = 13) -> Text {
         self.font(.system(size: size, weight: .semibold))
             .tracking(2.2)
@@ -133,7 +181,6 @@ extension Text {
 }
 
 extension View {
-    /// Tabular monospace for technical/metadata readouts (versions, counts).
     func hermesMono(size: CGFloat = 12.5) -> some View {
         self.font(.system(size: size, design: .monospaced)).tracking(0.5)
     }

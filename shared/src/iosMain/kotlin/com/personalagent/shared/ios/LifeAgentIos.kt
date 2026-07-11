@@ -222,6 +222,18 @@ object LifeAgentIos {
     /** The fixed suggestion chips (shared copy with Android). */
     fun suggestionChips(): List<SuggestionChip> = SuggestionChips.ALL
 
+    /** Plan-row tap → learning resource STARTED (enum handling kept Kotlin-side). */
+    fun setLearningResourceStarted(store: LearningStore, resourceId: String) =
+        store.setStatus(resourceId, LearningStatus.STARTED, SystemClock.nowMillis())
+
+    /** Plan-row tick on a learning resource → FINISHED/STARTED (enum kept Kotlin-side). */
+    fun setLearningResourceDone(store: LearningStore, resourceId: String, done: Boolean) =
+        store.setStatus(
+            resourceId,
+            if (done) LearningStatus.FINISHED else LearningStatus.STARTED,
+            SystemClock.nowMillis(),
+        )
+
     /**
      * Compose a native view for [ask] from the user's REAL local data + the user's
      * own Hermes, then fan the result to Swift: [onView] with a validated

@@ -32,6 +32,11 @@ final class AppEnvironment: ObservableObject {
     // Phase 6 — authoritative local store of learning goals + resources.
     let learningStore: LearningStore
 
+    // Appearance: the user-selectable accent color (shared curated palette).
+    let appearanceStore: AppearanceStore
+    /// Published so picking an accent re-themes the whole app live.
+    @Published var accentId: String
+
     // 🔒 Crisis safety (consent-first; contacts NO ONE automatically).
     let trustedContacts: TrustedContactsStore
     let crisisRecognizer: KeywordCrisisRecognizer
@@ -65,11 +70,23 @@ final class AppEnvironment: ObservableObject {
         self.knowledgeStore = knowledgeStore
         self.knowledgeService = ios.knowledgeGraphService(chat: chatStore, kg: knowledgeStore)
         self.learningStore = ios.learningStore(crypto: crypto)
+        let appearanceStore = ios.appearanceStore(crypto: crypto)
+        self.appearanceStore = appearanceStore
+        self.accentId = appearanceStore.accentId()
         self.trustedContacts = ios.trustedContactsStore(crypto: crypto)
         self.crisisRecognizer = ios.crisisRecognizer()
         self.crisisResponder = ios.crisisResponder()
 
         self.isConnected = configStore.isConfigured()
+    }
+
+    /// The resolved accent option for the current selection (from the shared list).
+    var accentOption: AccentOption { LifeAgentIos.shared.accentById(id: accentId) }
+
+    /// Persist + apply a new accent (re-themes the app immediately).
+    func setAccent(_ id: String) {
+        appearanceStore.setAccentId(id: id)
+        accentId = id
     }
 
     /// A live client for the saved connection, or nil if not connected yet.
