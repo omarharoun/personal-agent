@@ -16,6 +16,9 @@ captures/
 *.aab
 *.ap_
 *.dex
+
+# --- iOS build artifacts ---
+*.ipa
 release/
 
 # --- Android release signing (NEVER commit) ---
