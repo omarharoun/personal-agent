@@ -29,6 +29,9 @@ class LearningStore(private val storage: KeyValueStorage) {
     private fun save(state: LearningState) =
         storage.put(KEY, json.encodeToString(LearningState.serializer(), state))
 
+    /** The whole persisted learning state — used by the generative-UI facts collector. */
+    fun state(): LearningState = load()
+
     // --- Goals ----------------------------------------------------------------
 
     /** Active goals first, newest first within each group. */

@@ -3,10 +3,20 @@ package com.personalagent.shared.ios
 import com.personalagent.shared.chat.ChatStore
 import com.personalagent.shared.chat.StoredConversation
 import com.personalagent.shared.chat.StoredMessage
+import com.personalagent.shared.appearance.AccentOption
+import com.personalagent.shared.appearance.AccentPalette
+import com.personalagent.shared.appearance.AppearanceStore
 import com.personalagent.shared.crypto.EncryptedKeyValueStorage
 import com.personalagent.shared.crypto.IosNativeKeyStore
 import com.personalagent.shared.crypto.IosSecretKeyProvider
 import com.personalagent.shared.crypto.SecretKeyProvider
+import com.personalagent.shared.genui.ComposeResult
+import com.personalagent.shared.genui.ComposedView
+import com.personalagent.shared.genui.FactsCollector
+import com.personalagent.shared.genui.GenerativeUiService
+import com.personalagent.shared.genui.SuggestionChip
+import com.personalagent.shared.genui.SuggestionChips
+import com.personalagent.shared.model.Reminder
 import com.personalagent.shared.hermes.ChatStreamEvent
 import com.personalagent.shared.hermes.DueReminder
 import com.personalagent.shared.hermes.HermesClient
@@ -192,6 +202,70 @@ object LifeAgentIos {
         val base = LifePrompts.reflection(reflectionStore.load().cadence.promptWord)
         val focus = learningStore.currentFocus() ?: return base
         return base + LearningPrompts.reflectionLearningAddon(focus.goal.topic, focus.resource.title)
+    }
+
+    // --- Appearance: user-selectable accent color ----------------------------
+
+    /** Persisted accent-color choice (shared curated list; sealed at rest). */
+    fun appearanceStore(crypto: SecretKeyProvider): AppearanceStore =
+        AppearanceStore(enc(crypto, "appearance"))
+
+    /** The full curated accent list — Swift reads id/name/*Rgb off each option. */
+    fun accentOptions(): List<AccentOption> = AccentPalette.OPTIONS
+
+    fun accentById(id: String): AccentOption = AccentPalette.byId(id)
+
+    fun defaultAccentId(): String = AccentPalette.DEFAULT_ID
+
+    // --- Generative UI: the agent composes a native view on demand -----------
+
+    /** The fixed suggestion chips (shared copy with Android). */
+    fun suggestionChips(): List<SuggestionChip> = SuggestionChips.ALL
+
+    /**
+     * Compose a native view for [ask] from the user's REAL local data + the user's
+     * own Hermes, then fan the result to Swift: [onView] with a validated
+     * [ComposedView] (Swift `switch`es over its blocks), or [onProse] with a plain
+     * agent line when there's nothing to compose / Hermes is unreachable.
+     *
+     * Facts are gathered here (suspend store reads) and every number is pinned to
+     * them by the shared parser — the model only narrates + selects layout.
+     * Reminders come from the iOS [ReminderRecord] history (there's no LocalStore on
+     * iOS); they're mapped to the shared [Reminder] shape for counting.
+     */
+    suspend fun composeView(
+        client: HermesClient,
+        taskStore: TaskStore,
+        learningStore: LearningStore,
+        chatStore: ChatStore,
+        reminders: List<ReminderRecord>,
+        ask: String,
+        onView: (ComposedView) -> Unit,
+        onProse: (String) -> Unit,
+    ) {
+        val now = SystemClock.nowMillis()
+        val reminderModels = reminders.map {
+            Reminder(
+                id = it.id,
+                title = it.text,
+                note = "",
+                triggerAtMillis = it.targetMillis,
+                status = com.personalagent.shared.model.ReminderStatus.SCHEDULED,
+                createdAt = now,
+            )
+        }
+        val facts = FactsCollector.build(
+            now = now,
+            tasks = taskStore.all(),
+            reminders = reminderModels,
+            planItems = emptyList(),
+            learning = learningStore.state(),
+            conversations = chatStore.all(),
+        )
+        when (val result = GenerativeUiService(client).compose(ask, facts)) {
+            is ComposeResult.Composed -> onView(result.view)
+            is ComposeResult.Prose -> onProse(result.text)
+        }
     }
 
     /** 🔒 Crisis (Gate 2) — consent-first; contacts NO ONE automatically. */
