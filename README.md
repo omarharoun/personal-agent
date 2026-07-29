@@ -328,6 +328,28 @@ Requires a **JDK** (not just a JRE) and, for Android, the **Android SDK**
 cd iosApp && xcodegen generate && open iosApp.xcodeproj
 ```
 
+Gradle runs on whatever JDK invokes it, so point `JAVA_HOME` at a **full JDK 21**
+(a JRE-only or newer JDK breaks the Java compile tasks). Need a machine-specific
+override? Put `org.gradle.java.home=/path/to/jdk-21` in your *user*
+`~/.gradle/gradle.properties` — not in the committed `gradle.properties`, where an
+absolute path would break every other machine and CI.
+
+### Getting an APK without a local Android SDK
+
+`.github/workflows/android-apk.yml` builds the APKs on a GitHub-hosted runner and
+uploads them as workflow artifacts. It runs on every push to `main` or `claude/**`,
+on pull requests, and on manual dispatch (Actions tab → *Android APK* → *Run
+workflow*). Download the built app from the run's **Artifacts** section:
+
+| Artifact | Contents | Notes |
+| --- | --- | --- |
+| `personal-agent-debug-apk` | `androidApp-debug.apk` | Debug-signed, installable on any device with "install from unknown sources". |
+| `personal-agent-release-apk` | `androidApp-release.apk` | R8-minified. Debug-signed unless a real `keystore.properties` is supplied — **not** uploadable to Play. |
+
+This is also the only way to build the app from a sandbox with restricted egress:
+both the Android SDK and Google's Maven repo are served from `dl.google.com`, so a
+network policy that blocks that host makes a local Android build impossible.
+
 ## Android release build
 
 The `release` build type is **release-config-ready** (R8 minify + resource
