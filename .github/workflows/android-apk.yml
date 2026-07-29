@@ -5,11 +5,16 @@ name: Android APK
 # Why CI and not a local build: the Android SDK and Google's Maven repo are both
 # served from dl.google.com, which is unreachable from the sandboxed agent
 # environment. A GitHub-hosted runner can reach it, so the APK is built here.
+#
+# Pushing a `v*` tag additionally publishes the APKs as GitHub Release assets,
+# which (unlike workflow artifacts) have permanent URLs and need no GitHub login.
 on:
   push:
     branches:
       - main
       - 'claude/**'
+    tags:
+      - 'v*'
   pull_request:
   workflow_dispatch:
 
@@ -17,6 +22,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+
+    permissions:
+      contents: write   # required to create the Release on a v* tag
 
     steps:
       - uses: actions/checkout@v4
@@ -70,3 +78,33 @@ jobs:
           name: personal-agent-release-apk
           path: androidApp/build/outputs/apk/release/*.apk
           if-no-files-found: warn
+
+      # On a v* tag, attach the APKs to a GitHub Release. Release assets get a
+      # stable, directly-downloadable URL that works without signing in — the
+      # practical way to get the app onto a phone. Uses the runner's preinstalled
+      # gh CLI rather than a third-party action.
+      - name: Publish APKs to a GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp androidApp/build/outputs/apk/debug/androidApp-debug.apk \
+             "dist/personal-agent-${TAG}-debug.apk"
+          if [ -f androidApp/build/outputs/apk/release/androidApp-release.apk ]; then
+            cp androidApp/build/outputs/apk/release/androidApp-release.apk \
+               "dist/personal-agent-${TAG}-release.apk"
+          fi
+          gh release create "$TAG" dist/*.apk \
+            --title "$TAG" \
+            --prerelease \
+            --notes 'Automated build from `.github/workflows/android-apk.yml`.
+
+          | File | Notes |
+          | --- | --- |
+          | `*-debug.apk` | Debug-signed. Install directly on a device. |
+          | `*-release.apk` | R8-minified. Debug-signed unless a real `keystore.properties` was supplied — **not** uploadable to Play. |
+
+          Both APKs are signed with the Android **debug** key, so they are for testing/sideloading only.'

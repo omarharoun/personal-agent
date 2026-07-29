@@ -346,6 +346,19 @@ workflow*). Download the built app from the run's **Artifacts** section:
 | `personal-agent-debug-apk` | `androidApp-debug.apk` | Debug-signed, installable on any device with "install from unknown sources". |
 | `personal-agent-release-apk` | `androidApp-release.apk` | R8-minified. Debug-signed unless a real `keystore.properties` is supplied — **not** uploadable to Play. |
 
+Workflow artifacts require a signed-in GitHub account and expire after 90 days. For
+a **permanent, no-login download link**, push a `v*` tag — the same workflow then
+attaches both APKs to a GitHub Release:
+
+```bash
+git tag v2.4.0-ci.1 && git push origin v2.4.0-ci.1
+#   → https://github.com/omarharoun/personal-agent/releases/tag/v2.4.0-ci.1
+```
+
+Release assets are directly downloadable on a phone browser, which makes tag-push
+the practical way to sideload a build. They are marked pre-release: without a real
+`keystore.properties` the APKs are **debug-signed**, so they are for testing only.
+
 This is also the only way to build the app from a sandbox with restricted egress:
 both the Android SDK and Google's Maven repo are served from `dl.google.com`, so a
 network policy that blocks that host makes a local Android build impossible.
