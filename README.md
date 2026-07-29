@@ -347,17 +347,22 @@ workflow*). Download the built app from the run's **Artifacts** section:
 | `personal-agent-release-apk` | `androidApp-release.apk` | R8-minified. Debug-signed unless a real `keystore.properties` is supplied — **not** uploadable to Play. |
 
 Workflow artifacts require a signed-in GitHub account and expire after 90 days. For
-a **permanent, no-login download link**, push a `v*` tag — the same workflow then
-attaches both APKs to a GitHub Release:
+a **permanent, no-login download link**, get the workflow to attach the APKs to a
+GitHub Release instead. Two ways to ask for one:
 
 ```bash
-git tag v2.4.0-ci.1 && git push origin v2.4.0-ci.1
-#   → https://github.com/omarharoun/personal-agent/releases/tag/v2.4.0-ci.1
+# 1. Push a v* tag — the release is named after the tag.
+git tag v2.4.0 && git push origin v2.4.0
+
+# 2. Or put [apk] anywhere in the commit message. The workflow creates the tag
+#    itself, named from the app's versionName: v<versionName>-ci.<run number>.
+git commit -m "Tweak the reflection prompt [apk]" && git push
 ```
 
-Release assets are directly downloadable on a phone browser, which makes tag-push
-the practical way to sideload a build. They are marked pre-release: without a real
-`keystore.properties` the APKs are **debug-signed**, so they are for testing only.
+The second path exists because some environments can push branches but not tags.
+Release assets are directly downloadable in a phone browser, which makes this the
+practical way to sideload a build. Releases are marked **pre-release**: without a
+real `keystore.properties` the APKs are debug-signed, so they are for testing only.
 
 This is also the only way to build the app from a sandbox with restricted egress:
 both the Android SDK and Google's Maven repo are served from `dl.google.com`, so a

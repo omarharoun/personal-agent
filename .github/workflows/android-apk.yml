@@ -79,15 +79,35 @@ jobs:
           path: androidApp/build/outputs/apk/release/*.apk
           if-no-files-found: warn
 
-      # On a v* tag, attach the APKs to a GitHub Release. Release assets get a
-      # stable, directly-downloadable URL that works without signing in — the
-      # practical way to get the app onto a phone. Uses the runner's preinstalled
-      # gh CLI rather than a third-party action.
+      # Decide whether this build publishes a Release, and under which tag.
+      # Two ways in: push a `v*` tag, or put `[apk]` in the commit message (handy
+      # when you can't push tags). The commit message is read via git rather than
+      # interpolated from the event payload, so it can't inject shell.
+      - name: Decide release tag
+        id: relmeta
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif git log -1 --pretty=%B | grep -qF '[apk]'; then
+            # Derive the tag from the app's own versionName so it can't drift.
+            version=$(grep -oP 'versionName = "\K[^"]+' androidApp/build.gradle.kts)
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "tag=v${version}-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Attach the APKs to a GitHub Release. Release assets get a stable,
+      # directly-downloadable URL that works without signing in — the practical
+      # way to get the app onto a phone. Uses the runner's preinstalled gh CLI
+      # rather than a third-party action; `--target` makes gh create the tag too.
       - name: Publish APKs to a GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.relmeta.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.relmeta.outputs.tag }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -99,6 +119,7 @@ jobs:
           fi
           gh release create "$TAG" dist/*.apk \
             --title "$TAG" \
+            --target "$GITHUB_SHA" \
             --prerelease \
             --notes 'Automated build from `.github/workflows/android-apk.yml`.
 
